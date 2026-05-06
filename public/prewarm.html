@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pre-warm Face Embeddings</title>
+    <script src="assets/js/face-api.min.js"></script>
+</head>
+<body>
+    <h1>Syncing Face Embeddings to Database...</h1>
+    <div id="status">Loading models...</div>
+    <script>
+        async function run() {
+            const status = document.getElementById('status');
+            try {
+                await faceapi.nets.tinyFaceDetector.loadFromUri('assets/face-models');
+                await faceapi.nets.faceLandmark68Net.loadFromUri('assets/face-models');
+                await faceapi.nets.faceRecognitionNet.loadFromUri('assets/face-models');
+                
+                status.innerText = "Models loaded. Fetching users...";
+                const res = await fetch('sync.php');
+                const p = await res.json();
+                const members = p.data || [];
+                
+                let count = 0;
+                for (const m of members) {
+                    const id = m.id || m[0];
+                    const nama = m.nama || m[4];
+                    const embedding = m.face_embedding || m[8];
+                    const foto = m.foto_base64 || m[7];
+                    
+                    if (!embedding && foto) {
+                        status.innerText = `Computing face for ${nama} (ID: ${id})...`;
+                        const img = await faceapi.fetchImage(foto);
+                        const det = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 320 })).withFaceLandmarks().withFaceDescriptor();
+                        
+                        if (det) {
+                            const formData = new FormData();
+                            formData.append('user_id', id);
+                            formData.append('embedding', JSON.stringify(Array.from(det.descriptor)));
+                            const saveRes = await fetch('sync.php', { method: 'POST', body: formData });
+                            if (saveRes.ok) count++;
+                        }
+                    }
+                }
+                status.innerText = `Done! Computed and saved ${count} new face embeddings.`;
+                document.body.innerHTML += `<div id="finished">FINISHED</div>`;
+            } catch (e) {
+                status.innerText = "Error: " + e.message;
+            }
+        }
+        run();
+    </script>
+</body>
+</html>

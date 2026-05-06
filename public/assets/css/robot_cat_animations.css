@@ -1,0 +1,114 @@
+/**
+ * SVG Robot Cat Character Animations
+ */
+
+/* Container */
+#robot-cat-character {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#robot-cat-character svg {
+    width: 100%;
+    height: 100%;
+}
+
+/* CSS Variables for colors */
+:root {
+    --glow-cyan: #00f2ff;
+    --glow-red: #ff3131;
+    --body-silver: #e2e8f0;
+    --body-shadow: #94a3b8;
+}
+
+/* Glow Effects */
+.glow-cyan { filter: drop-shadow(0 0 5px var(--glow-cyan)); }
+.glow-red { filter: drop-shadow(0 0 8px var(--glow-red)); }
+
+/* === HAPPY ANIMATIONS === */
+#robot-cat-character.emotion-happy #tail-happy-group {
+    transform-origin: 240px 250px;
+    animation: wag-tail 0.6s ease-in-out infinite alternate;
+}
+
+@keyframes wag-tail {
+    from { transform: rotate(-8deg); }
+    to { transform: rotate(22deg); }
+}
+
+#robot-cat-character.emotion-happy .floating-heart {
+    animation: heart-float 2s ease-in-out infinite;
+    opacity: 0;
+}
+
+@keyframes heart-float {
+    0% { transform: translateY(0) scale(0.5); opacity: 0; }
+    50% { opacity: 0.8; }
+    100% { transform: translateY(-50px) scale(1.2); opacity: 0; }
+}
+
+/* === SAD ANIMATIONS === */
+#robot-cat-character.emotion-sad #head-sad-v3 {
+    transform-origin: 180px 210px;
+    animation: head-sink 3s ease-in-out infinite alternate;
+}
+
+#robot-cat-character.emotion-sad #ear-l-sad {
+    transform-origin: 135px 115px;
+    animation: ear-fold-l 3s ease-in-out infinite alternate;
+}
+
+#robot-cat-character.emotion-sad #ear-r-sad {
+    transform-origin: 225px 115px;
+    animation: ear-fold-r 3s ease-in-out infinite alternate;
+}
+
+@keyframes head-sink {
+    from { transform: translateY(0) rotate(0); }
+    to { transform: translateY(8px) rotate(3deg); }
+}
+
+@keyframes ear-fold-l {
+    from { transform: rotate(0); }
+    to { transform: rotate(-25deg); }
+}
+
+@keyframes ear-fold-r {
+    from { transform: rotate(0); }
+    to { transform: rotate(25deg); }
+}
+
+/* === ANGRY ANIMATIONS === */
+#robot-cat-character.emotion-angry #tail-angry-v3 {
+    transform-origin: 240px 250px;
+    animation: tail-vibrate 0.1s linear infinite;
+}
+
+@keyframes tail-vibrate {
+    0% { transform: translate(0,0); }
+    50% { transform: translate(2px, -2px); }
+    100% { transform: translate(-2px, 2px); }
+}
+
+#robot-cat-character.emotion-angry .smoke-puff {
+    animation: puff-up 1.5s ease-out infinite;
+    opacity: 0;
+}
+
+@keyframes puff-up {
+    0% { transform: scale(0.5) translateY(0); opacity: 0; }
+    30% { opacity: 0.6; }
+    100% { transform: scale(1.5) translateY(-40px); opacity: 0; }
+}
+
+/* Visibility toggles */
+.hidden { display: none; }
+
+/* Smooth transitions between states */
+#robot-cat-character {
+    transition: all 0.3s ease;
+}
