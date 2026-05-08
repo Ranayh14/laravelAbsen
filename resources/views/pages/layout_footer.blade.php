@@ -7867,237 +7867,359 @@ function renderEmployeeKPIChart(kpiData) {
 }
 
 function renderRekapData(data, m, y) {
-    // Get selected week (use current week as default if no selection)
-    const currentWeek = getWeekNumberInMonth(new Date());
-    let selectedWeek = parseInt(qs('#rekap-week')?.value || currentWeek);
-    
-    // If week selector is hidden or no value, show all data
-    if (!qs('#rekap-week') || qs('#rekap-week').classList.contains('hidden') || !qs('#rekap-week').value) {
-        selectedWeek = 0; // Show all weeks
-    }
-    
-    // Debug logging
-    console.log('Current week:', currentWeek);
-    console.log('Selected week:', selectedWeek);
-    console.log('Week selector value:', qs('#rekap-week')?.value);
-    console.log('Current month:', new Date().getMonth() + 1, 'Selected month:', m);
-    console.log('Current year:', new Date().getFullYear(), 'Selected year:', y);
-    
     const body = qs('#table-rekap-body');
-    if (!body) {
-        return;
-    }
+    if (!body) return;
     body.innerHTML = '';
+    
     if (!data || data.length === 0) {
-        body.innerHTML = `<tr><td colspan="6" class="text-center py-4">Tidak ada data.</td></tr>`;
+        body.innerHTML = `<div class="col-span-7 text-center py-8 text-gray-500">Tidak ada data.</div>`;
         return;
     }
 
-    // Show data for selected week, or all data if no week selector
+    const currentWeek = getWeekNumberInMonth(new Date());
+    let selectedWeek = parseInt(qs('#rekap-week')?.value || 0);
+    if (!qs('#rekap-week') || qs('#rekap-week').classList.contains('hidden')) {
+        selectedWeek = 0; 
+    }
+
+    // --- Calendar Padding Logic ---
+    // Only pad if showing full month (selectedWeek === 0)
+    if (selectedWeek === 0) {
+        const firstDay = new Date(data[0].date);
+        let dayOfWeek = firstDay.getDay(); // 0 Sun, 1 Mon ... 6 Sat
+        // Adjust to 0 Mon, 1 Tue ... 6 Sun (Monday starts at index 0)
+        let offset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+        
+        for (let i = 0; i < offset; i++) {
+            const empty = document.createElement('div');
+            empty.className = 'mood-item empty-slot opacity-20';
+            body.appendChild(empty);
+        }
+    }
+
     let dataToShow = data;
     if (selectedWeek > 0) {
-        dataToShow = data.filter(row => {
-            const rowWeek = getWeekNumberInMonth(new Date(row.date));
-            console.log('Row date:', row.date, 'Row week:', rowWeek, 'Selected week:', selectedWeek);
-            return rowWeek === selectedWeek;
-        });
-    } else {
-        // Show all data when "Semua Minggu" is selected or no week selector
-        dataToShow = data;
+        dataToShow = data.filter(row => getWeekNumberInMonth(new Date(row.date)) === selectedWeek);
     }
 
-    // Calculate past working days based on settings (default: 5 days) - only for current month/year
-    const today = new Date();
-    const currentMonth = today.getMonth() + 1;
-    const currentYear = today.getFullYear();
-    const past5WorkingDays = [];
-    
-    // Calculate past working days based on settings (default: 5 days)
-    // Get max days back from settings or use default
-    const maxDaysBack = window.maxDailyReportDaysBack || 5;
-    if (m === currentMonth && y === currentYear) {
-        let tempDate = new Date(today);
-        let workingDaysFound = 0;
-        let daysChecked = 0;
-        const maxDaysToCheck = maxDaysBack * 2; // Check up to 2x maxDaysBack to find enough working days
-        
-        while (workingDaysFound < maxDaysBack && daysChecked < maxDaysToCheck) {
-            const dayOfWeek = tempDate.getDay();
-            if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Not Sunday (0) and not Saturday (6)
-                past5WorkingDays.push(tempDate.toISOString().slice(0, 10));
-                workingDaysFound++;
-            }
-            tempDate.setDate(tempDate.getDate() - 1);
-            daysChecked++;
-        }
-    }
-    
+    // --- Custom Cat Icon SVGs ---
+    const catDecor = `
+        <path d="M4 6L2 2L8 4" stroke="currentColor" fill="currentColor" stroke-width="1" stroke-linejoin="round" />
+        <path d="M20 6L22 2L16 4" stroke="currentColor" fill="currentColor" stroke-width="1" stroke-linejoin="round" />
+        <line x1="1" y1="12" x2="4" y2="13" stroke="currentColor" stroke-width="1" opacity="0.6" />
+        <line x1="1" y1="15" x2="4" y2="15" stroke="currentColor" stroke-width="1" opacity="0.6" />
+        <line x1="20" y1="13" x2="23" y2="12" stroke="currentColor" stroke-width="1" opacity="0.6" />
+        <line x1="20" y1="15" x2="23" y2="15" stroke="currentColor" stroke-width="1" opacity="0.6" />
+    `;
 
+    const icons = {
+        happy: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            ${catDecor}
+            <path d="M6 12c0-1 1-2 2-2s2 1 2 2" />
+            <path d="M14 12c0-1 1-2 2-2s2 1 2 2" />
+            <path d="M9 17s1.5 2 3 2 3-2 3-2" />
+        </svg>`,
+        sleeping: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            ${catDecor}
+            <path d="M6 13h3M15 13h3" />
+            <path d="M11 17c0 1 1 1 1 1s1 0 1-1" />
+            <path d="M12 15v1" stroke-width="1" />
+        </svg>`,
+        energetic: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            ${catDecor}
+            <circle cx="7" cy="12" r="1.5" fill="currentColor" />
+            <circle cx="17" cy="12" r="1.5" fill="currentColor" />
+            <path d="M12 16c1.5 0 2.5 1 2.5 2.5S13.5 21 12 21s-2.5-1-2.5-2.5 1-2.5 1.5-2.5z" fill="currentColor" opacity="0.3" />
+            <path d="M10 16.5c0 0 .5-.5 2-.5s2 .5 2 .5" />
+        </svg>`,
+        bored: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            ${catDecor}
+            <path d="M7 11h.01M17 11h.01" stroke-width="3" />
+            <path d="M9 17h6" />
+            <path d="M6 9l2 1M18 9l-2 1" />
+        </svg>`,
+        unknown: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            ${catDecor}
+            <circle cx="12" cy="12" r="1" fill="currentColor" />
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+        </svg>`,
+        future: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            ${catDecor}
+            <circle cx="12" cy="13" r="1" fill="currentColor" />
+            <path d="M12 7v6l3 2" />
+        </svg>`
+    };
 
-    if (dataToShow.length === 0) {
-        if (selectedWeek > 0) {
-            body.innerHTML = `<tr><td colspan="6" class="text-center py-4">Tidak ada data untuk minggu ke-${selectedWeek}.</td></tr>`;
-        } else {
-            body.innerHTML = `<tr><td colspan="6" class="text-center py-4">Tidak ada data untuk periode ini.</td></tr>`;
-        }
-        return;
-    }
+    // --- Counters for Stats ---
+    const stats = { happy: 0, leave: 0, work: 0, alpha: 0, total: 0 };
 
     dataToShow.forEach(row => {
         const d = new Date(row.date);
-        const tanggal = d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
-        const dayMap = { 
-            Monday: 'Senin', 
-            Tuesday: 'Selasa', 
-            Wednesday: 'Rabu', 
-            Thursday: 'Kamis', 
-            Friday: 'Jumat',
-            Saturday: 'Sabtu',
-            Sunday: 'Minggu'
-        };
-        const day = dayMap[d.toLocaleDateString('en-US', { weekday: 'long' })] || '';
-        const dr = row.daily_report;
-        let reportBtns = '';
-        
-        // Check if attendance is complete (has entry time or is WFH or is overtime)
-        const hasEntryTime = row.jam_masuk && row.jam_masuk !== '-';
-        const isWFH = row.ket === 'wfh';
-        const isOvertime = row.ket === 'overtime';
-        const isAttendanceComplete = hasEntryTime || isWFH || isOvertime;
-        
-        // Check if within timeframe (only for current month/year) - use settings for max days
-        // For now, allow all days that have attendance (including overtime)
-        const isWithinTimeframe = (m === currentMonth && y === currentYear) ? past5WorkingDays.includes(row.date) : true;
-        // Also allow overtime days and working days with attendance
-        const canCreateReport = isAttendanceComplete && (isWithinTimeframe || isOvertime || hasEntryTime);
-        
-        // Check if can edit (not approved and within timeframe or is overtime)
-        const canEdit = dr && dr.status !== 'approved' && (isWithinTimeframe || isOvertime);
-        
-
-
-        if (dr) {
-            if (dr.status === 'approved') {
-                // Only view button for approved reports
-                reportBtns = `<button title="Lihat" class="btn-view-dr text-blue-600 font-bold" data-date="${row.date}"><i class="fi fi-ss-eye"></i></button>`;
-            } else {
-                // For disapproved and pending reports, always allow edit and view
-                reportBtns = `<button title="Edit" class="btn-edit-dr text-yellow-600 font-bold ml-1" data-date="${row.date}"><i class="fi fi-sr-pen-square"></i></button>
-                            <button title="Lihat" class="btn-view-dr text-blue-600 font-bold ml-1" data-date="${row.date}"><i class="fi fi-ss-eye"></i></button>`;
-            }
-        } else {
-            // No report exists
-            if (canCreateReport) {
-                reportBtns = `<button class="btn-create-dr bg-emerald-500 hover:bg-emerald-600 text-white btn-pill" data-date="${row.date}">Buat</button>`;
-            } else if (!isAttendanceComplete && isWithinTimeframe) {
-                reportBtns = `<span class="text-gray-400">Belum presensi</span>`;
-            } else if (!isAttendanceComplete && !isWithinTimeframe && !isOvertime) {
-                reportBtns = `<span class="text-gray-400">Tidak tersedia</span>`;
-            } else if (isOvertime && !dr) {
-                // Allow creating report for overtime even if outside timeframe
-                reportBtns = `<button class="btn-create-dr bg-emerald-500 hover:bg-emerald-600 text-white btn-pill" data-date="${row.date}">Buat</button>`;
-            }
-        }
-
-        // Format time for display (only HH:MM)
-        const formatTimeDisplay = (timeStr) => {
-            if (!timeStr || timeStr === '-') return '-';
-            if (timeStr === 'izin' || timeStr === 'sakit' || timeStr === 'wfh') return timeStr;
-            return timeStr.substring(0, 5);
-        };
-        
-        // Keterangan column logic
-        let keteranganContent = '';
         const today = new Date().toISOString().slice(0, 10);
-        const isToday = row.date === today;
         const isFuture = row.date > today;
+        const isToday = row.date === today;
         
-        // Check if it's a manual holiday or before registration
         const isManualHoliday = row.is_manual_holiday || false;
-        const isBeforeRegistration = row.is_before_registration || false;
         const isWorkingDay = row.is_working_day !== undefined ? row.is_working_day : true;
-        
-        // Check if date is weekend (Saturday = 6, Sunday = 0)
-        const dayOfWeek = d.getDay();
-        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6; // Sunday or Saturday
-        
-        // Check if date is a holiday (manual holiday or not a working day or weekend)
+        const isWeekend = row.is_weekend || false;
         const isHoliday = isManualHoliday || !isWorkingDay || isWeekend;
         
-        // Determine status label
-        let statusLabel = '';
-        if (isFuture || isHoliday) {
-            // For future dates or holidays, show "Not Available" with gray badge
-            statusLabel = '<span class="badge badge-gray">Not Available</span>';
-        } else if (dr) {
-            // If report exists, show status based on approval
-            statusLabel = dr.status === 'approved' 
-                ? `<span class="badge badge-green">Di-approve</span>` 
-                : (dr.status === 'disapproved' 
-                    ? `<span class="badge badge-red">Tidak di-approve</span>` 
-                    : `<span class="badge badge-blue">Belum di-approve</span>`);
-        } else {
-            // No report exists and it's not a holiday/future date
-            statusLabel = '<span class="badge badge-orange">Belum ada laporan</span>';
-        }
+        const dr = row.daily_report;
+        const ket = (row.ket || '').toLowerCase();
         
-        if (row.ket && (row.ket === 'wfo' || row.ket === 'wfa' || row.ket === 'izin' || row.ket === 'sakit' || row.ket === 'overtime' || row.ket === 'libur' || row.ket === 'na')) {
-            // Show actual keterangan if exists
-            let badgeClass = 'badge-gray';
-            if (row.ket === 'wfo') badgeClass = 'badge-green';
-            else if (row.ket === 'wfa') badgeClass = 'badge-blue';
-            else if (row.ket === 'overtime') badgeClass = 'badge-emerald';
-            else if (row.ket === 'izin') badgeClass = 'badge-yellow';
-            else if (row.ket === 'sakit') badgeClass = 'badge-yellow';
-            else if (row.ket === 'libur') badgeClass = 'badge-orange';
-            else if (row.ket === 'na') badgeClass = 'badge-gray';
-            
-            let ketText = row.ket.toUpperCase();
-            if (row.ket === 'na') ketText = 'NA';
-            if (row.ket === 'libur') ketText = 'LIBUR';
-            
-            keteranganContent = `<span class="badge ${badgeClass}">${ketText}</span>`;
-        } else if (isManualHoliday || (!isWorkingDay && !row.ket)) {
-            // Manual holiday or weekend/holiday without attendance - show libur with orange badge
-            keteranganContent = '<span class="badge badge-orange">LIBUR</span>';
-        } else if (isBeforeRegistration) {
-            // Before registration - show NA
-            keteranganContent = '<span class="badge badge-gray">NA</span>';
-        } else if (!isAttendanceComplete && isToday && isWorkingDay) {
-            // Show input button only for today if no attendance and it's a working day
-            keteranganContent = `<button class="btn-input-keterangan bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-1 rounded text-sm" data-date="${row.date}">Input Keterangan</button>`;
-        } else if (!isAttendanceComplete && isFuture) {
-            // Show "Tidak Tersedia" for future days
-            keteranganContent = '<span class="text-gray-400">Tidak Tersedia</span>';
-        } else if (!isAttendanceComplete && !isToday && !isFuture && isWorkingDay) {
-            // Mark past working days without attendance as alpha (only for working days)
-            keteranganContent = '<span class="badge badge-red">ALPHA</span>';
-        } else if (!isAttendanceComplete && !isToday && !isFuture && !isWorkingDay) {
-            // For non-working days (weekend/holiday) without attendance, show nothing or "-"
-            keteranganContent = '<span class="text-gray-400">-</span>';
-        } else {
-            keteranganContent = '<span class="text-gray-400">-</span>';
+        let moodClass = 'mood-gray';
+        let icon = icons.bored;
+        let bubbleText = '...';
+        let type = 'unknown';
+
+        if (isHoliday) {
+            if (ket === 'wfo' || ket === 'wfa' || ket === 'overtime') {
+                moodClass = 'mood-green';
+                icon = icons.energetic;
+                bubbleText = 'Working Hard!';
+                type = 'work';
+                stats.work++;
+            } else {
+                moodClass = 'mood-blue-bright';
+                icon = icons.happy;
+                bubbleText = 'holi-yay!';
+                type = 'holiday';
+                stats.happy++;
+            }
+        } else if (ket === 'sakit' || ket === 'izin') {
+            moodClass = 'mood-purple-dark';
+            icon = icons.sleeping;
+            bubbleText = 'on leave zzz..';
+            type = 'leave';
+            stats.leave++;
+        } else if (ket === 'wfo' || ket === 'wfa' || ket === 'overtime') {
+            moodClass = 'mood-green';
+            icon = icons.energetic;
+            bubbleText = 'Working Hard!';
+            type = 'work';
+            stats.work++;
+        } else if (!isFuture && isWorkingDay && (!ket || ket === 'na')) {
+            if (isToday) {
+                moodClass = 'mood-today-empty';
+                icon = icons.unknown;
+                bubbleText = 'Belum presensi';
+                type = 'today_empty';
+            } else {
+                moodClass = 'mood-red';
+                icon = icons.bored;
+                bubbleText = 'missing...';
+                type = 'alpha';
+                stats.alpha++;
+            }
+        } else if (isFuture) {
+            moodClass = 'mood-gray opacity-40';
+            icon = icons.future;
+            bubbleText = 'coming soon';
+            type = 'future';
         }
 
-        const tr = document.createElement('tr');
-        tr.className = 'border-b hover:bg-gray-50 text-center';
-        tr.innerHTML = `
-            <td class="py-2 px-4">${day}</td>
-            <td class="py-2 px-4">${tanggal}</td>
-            <td class="py-2 px-4">${formatTimeDisplay(row.jam_masuk)}</td>
-            <td class="py-2 px-4">${formatTimeDisplay(row.jam_pulang)}</td>
-            <td class="py-2 px-4">${keteranganContent}</td>
-            <td class="py-2 px-4">${reportBtns}</td>
-            <td class="py-2 px-4">${statusLabel}</td>`;
-        body.appendChild(tr);
+        if (!isFuture) stats.total++;
+
+        let dotClass = 'dot-gray';
+        if (dr) {
+            if (dr.status === 'approved') dotClass = 'dot-green';
+            else if (dr.status === 'disapproved') dotClass = 'dot-red';
+            else dotClass = 'dot-blue';
+        }
+
+        const moodItem = document.createElement('div');
+        moodItem.className = `mood-item ${isToday ? 'today-active z-10' : ''}`;
+        
+        const dayInt = d.getDate();
+        
+        moodItem.innerHTML = `
+            <div class="mood-bubble">${bubbleText}</div>
+            <button class="mood-button ${moodClass}" data-date="${row.date}" data-type="${type}">
+                ${icon}
+                ${(type === 'work' || type === 'leave') ? `<div class="mood-status-dot ${dotClass}"></div>` : ''}
+            </button>
+            <div class="mood-date">${dayInt}</div>
+        `;
+
+        const btn = moodItem.querySelector('.mood-button');
+        btn.addEventListener('click', () => {
+            if (type === 'holiday') {
+                if (window.confetti) {
+                    confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 }, colors: ['#0ea5e9', '#38bdf8', '#7dd3fc'] });
+                }
+            } else if (type === 'alpha') {
+                const overlay = qs('#angry-cat-overlay');
+                if (overlay) { overlay.style.display = 'flex'; setTimeout(() => overlay.style.display = 'none', 2500); }
+            } else if (type === 'work') {
+                showWorkModal(row);
+            } else if (type === 'leave') {
+                showLeaveModal(row);
+            } else if (type === 'today_empty') {
+                window.showAttendanceNoteModal();
+            }
+        });
+
+        body.appendChild(moodItem);
     });
-    
-    // Reset flag
+
+    // Update Stats DOM
+    if (qs('#stat-happy-count')) qs('#stat-happy-count').textContent = stats.happy;
+    if (qs('#stat-leave-count')) qs('#stat-leave-count').textContent = stats.leave;
+    if (qs('#stat-work-count')) qs('#stat-work-count').textContent = stats.work;
+    if (qs('#stat-alpha-count')) qs('#stat-alpha-count').textContent = stats.alpha;
+    if (qs('#stat-total-count')) qs('#stat-total-count').textContent = stats.total + ' Hari';
+
     isInitRekapRunning = false;
-    
-    // Load and display KPI chart
     loadKPIChart(m, y);
 }
+
+window.showAttendanceNoteModal = function() {
+    const modal = qs('#izin-sakit-modal');
+    if (modal) {
+        modal.classList.remove('hidden');
+    } else {
+        showNotif('Silakan input keterangan presensi hari ini.');
+    }
+};
+
+window.showWorkModal = function(row) {
+    const d = new Date(row.date);
+    const dayMap = { Monday: 'Senin', Tuesday: 'Selasa', Wednesday: 'Rabu', Thursday: 'Kamis', Friday: 'Jumat', Saturday: 'Sabtu', Sunday: 'Minggu' };
+    const dayName = dayMap[d.toLocaleDateString('en-US', { weekday: 'long' })] || '';
+    const tanggal = d.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
+    
+    const dr = row.daily_report;
+    let statusText = 'Belum ada laporan';
+    let statusClass = 'text-gray-500';
+    if (dr) {
+        if (dr.status === 'approved') { statusText = 'Disetujui'; statusClass = 'text-green-600'; }
+        else if (dr.status === 'disapproved') { statusText = 'Ditolak'; statusClass = 'text-red-600'; }
+        else { statusText = 'Menunggu Persetujuan'; statusClass = 'text-blue-600'; }
+    }
+
+    const content = `
+        <div class="space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <p class="text-xs text-gray-500 uppercase font-bold">Hari / Tanggal</p>
+                    <p class="font-semibold text-gray-800">${dayName}, ${tanggal}</p>
+                </div>
+                <div>
+                    <p class="text-xs text-gray-500 uppercase font-bold">Keterangan Presensi</p>
+                    <p class="font-semibold text-gray-800">${(row.ket || '').toUpperCase()}</p>
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <p class="text-xs text-gray-500 uppercase font-bold">Jam Masuk</p>
+                    <p class="font-semibold text-gray-800">${row.jam_masuk || '-'}</p>
+                </div>
+                <div>
+                    <p class="text-xs text-gray-500 uppercase font-bold">Jam Keluar</p>
+                    <p class="font-semibold text-gray-800">${row.jam_pulang || '-'}</p>
+                </div>
+            </div>
+            <div>
+                <p class="text-xs text-gray-500 uppercase font-bold">Status Laporan</p>
+                <p class="font-bold ${statusClass}">${statusText}</p>
+            </div>
+            <div>
+                <p class="text-xs text-gray-500 uppercase font-bold mb-1">Laporan Harian</p>
+                <div id="modal-dr-column" class="p-3 bg-gray-50 rounded-xl border border-gray-200 min-h-[100px] cursor-pointer hover:bg-white transition-colors" onclick="makeDrEditable(this, '${row.date}')">
+                    ${dr ? (dr.content || '<span class="text-gray-400 italic">Isi laporan kosong...</span>') : '<span class="text-gray-400 italic">Belum ada isi laporan...</span>'}
+                </div>
+                <div id="dr-edit-actions" class="hidden mt-2 flex justify-end gap-2">
+                    <button onclick="saveDrFromModal('${row.date}')" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold">Simpan</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    customAlert(content, 'Detail Kehadiran & Laporan');
+    const modalMessage = qs('#global-modal-message');
+    if (modalMessage) { modalMessage.innerHTML = content; }
+};
+
+window.makeDrEditable = function(el, date) {
+    if (el.querySelector('textarea')) return;
+    const currentText = (el.innerText === 'Belum ada isi laporan...' || el.innerText === 'Isi laporan kosong...') ? '' : el.innerText;
+    el.innerHTML = `<textarea id="modal-dr-textarea" class="w-full h-32 p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Tulis laporan harian Anda...">${currentText}</textarea>`;
+    qs('#dr-edit-actions').classList.remove('hidden');
+    el.onclick = null;
+};
+
+window.saveDrFromModal = async function(date) {
+    const textarea = qs('#modal-dr-textarea');
+    if (!textarea) return;
+    const val = textarea.value;
+    
+    try {
+        const res = await api('?ajax=save_daily_report', { date: date, content: val });
+        if (res.ok) {
+            const container = qs('#modal-dr-column');
+            container.innerHTML = val || '<span class="text-gray-400 italic">Belum ada isi laporan...</span>';
+            qs('#dr-edit-actions').classList.add('hidden');
+            container.onclick = () => makeDrEditable(container, date);
+            showNotif('Laporan berhasil disimpan');
+            initRekapPage();
+        } else {
+            showNotif(res.message || 'Gagal menyimpan laporan', false);
+        }
+    } catch (e) {
+        showNotif('Terjadi kesalahan', false);
+    }
+};
+
+window.showLeaveModal = function(row) {
+    const tanggal = new Date(row.date).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
+    
+    let evidenceHtml = '<p class="text-gray-400 italic">Tidak ada bukti</p>';
+    const evidenceId = row.note_id || row.attendance_id;
+    const evidenceType = row.note_id ? 'note' : 'masuk';
+    
+    if (evidenceId) {
+        evidenceHtml = `<div class="mt-2 w-full h-48 bg-gray-100 rounded-xl overflow-hidden relative cursor-pointer" onclick="loadAndShowEvidence('${evidenceType === 'note' ? 'note_' + evidenceId : evidenceId}', '${evidenceType}', 'Bukti Izin/Sakit')">
+            <div id="leave-proof-container-${evidenceId}" class="w-full h-full flex items-center justify-center">
+                <i class="fi fi-rr-picture text-3xl text-gray-300"></i>
+            </div>
+        </div>`;
+        setTimeout(() => loadLazyProof(evidenceId, evidenceType, `leave-proof-container-${evidenceId}`), 100);
+    }
+
+    const content = `
+        <div class="space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <p class="text-xs text-gray-500 uppercase font-bold">Tanggal</p>
+                    <p class="font-semibold text-gray-800">${tanggal}</p>
+                </div>
+                <div>
+                    <p class="text-xs text-gray-500 uppercase font-bold">Tipe</p>
+                    <p class="font-bold text-indigo-600">${(row.ket || '').toUpperCase()}</p>
+                </div>
+            </div>
+            <div>
+                <p class="text-xs text-gray-500 uppercase font-bold">Keterangan</p>
+                <div class="text-sm text-gray-700 bg-gray-50 p-3 rounded-xl border border-gray-200">
+                    ${row.daily_report ? (row.daily_report.content || '-') : '-'}
+                </div>
+            </div>
+            <div>
+                <p class="text-xs text-gray-500 uppercase font-bold mb-1">Bukti Izin/Sakit</p>
+                ${evidenceHtml}
+            </div>
+            <div>
+                <p class="text-xs text-gray-500 uppercase font-bold">Status Laporan</p>
+                <p class="font-bold text-indigo-600">Terdaftar</p>
+            </div>
+        </div>
+    `;
+
+    customAlert(content, 'Detail Izin / Sakit');
+    const modalMessage = qs('#global-modal-message');
+    if (modalMessage) { modalMessage.innerHTML = content; }
+};
 
 // Global variable to store chart instance
 let kpiChartInstance = null;
@@ -8366,19 +8488,17 @@ async function loadMissingDailyReports() {
             
             return `
                 <button 
-                    class="missing-report-btn bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2"
+                    class="missing-report-date-btn"
                     data-date="${date}"
                     title="Klik untuk mengisi laporan harian tanggal ${formattedDate}">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                    </svg>
-                    ${formattedDate}
+                    <i class="fi fi-rr-document-signed"></i>
+                    <span>${formattedDate}</span>
                 </button>
             `;
         }).join('');
         
         // Add event listeners to buttons
-        listDiv.querySelectorAll('.missing-report-btn').forEach(btn => {
+        listDiv.querySelectorAll('.missing-report-date-btn').forEach(btn => {
             btn.addEventListener('click', async () => {
                 const date = btn.getAttribute('data-date');
                 await openDailyReportEditModal(date);

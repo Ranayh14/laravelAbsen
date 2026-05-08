@@ -3672,6 +3672,8 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
             $out[] = [
                 'date'=>$dstr,
                 'day'=>$cur->format('l'),
+                'attendance_id'=>$att['id']??null,
+                'note_id'=>$notes['id']??null,
                 'jam_masuk'=>$att['jam_masuk']??null,
                 'jam_pulang'=>$att['jam_pulang']??null,
                 'status_presensi'=>$att['status']??null,
