@@ -56,14 +56,7 @@
                 <div class="relative">
                     <button id="btn-profile" class="flex items-center gap-3 p-1 pr-4 bg-white border border-gray-200 hover:border-blue-300 rounded-full transition-all shadow-sm hover:shadow-md group">
                         <?php 
-                        $avatar_src = 'https://ui-avatars.com/api/?background=eff6ff&color=3b82f6&name=' . urlencode($_SESSION['user']['nama'] ?? 'A') . '&size=128';
-                        if (!empty($_SESSION['user']['foto_base64'])) {
-                            $foto = $_SESSION['user']['foto_base64'];
-                            if (strpos($foto, 'data:') !== 0) {
-                                $foto = 'data:image/png;base64,' . $foto;
-                            }
-                            $avatar_src = $foto;
-                        }
+                        $avatar_src = getAvatarUrl($_SESSION['user']['foto_base64'] ?? '', $_SESSION['user']['nama'] ?? 'A');
                         ?>
                         <img src="<?php echo $avatar_src; ?>" class="avatar w-9 h-9 rounded-full object-cover ring-2 ring-white" alt="profile">
                          <span class="text-sm font-semibold text-gray-700 group-hover:text-blue-600 transition-colors hidden sm:inline"><?php echo htmlspecialchars($_SESSION['user']['nama'] ?? 'Akun'); ?></span>

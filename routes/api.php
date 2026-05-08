@@ -37,6 +37,7 @@ Route::middleware(['legacy.auth', 'require.auth'])->group(function () {
 
     // FaceNet API
     Route::post('/face/verify', [FaceNetController::class, 'verify']);
+    Route::post('/face/identify', [FaceNetController::class, 'identify']);
     Route::post('/face/register', [FaceNetController::class, 'registerFace']);
     Route::get('/face', [FaceNetController::class, 'index']);
     Route::get('/face/{id}', [FaceNetController::class, 'show']);

@@ -1039,8 +1039,8 @@ async function api(url, data, opts){
 
 // Port Detection and Fix
 (function() {
-    // Check if we're on the wrong port
-    if (window.location.port === '3000') {
+    // Check if we're on the wrong port (Local development only)
+    if (window.location.port === '3000' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
         console.warn('Detected port 3000, redirecting to correct XAMPP port...');
         // Try common XAMPP ports
         const xamppPorts = ['80', '8080', '8000'];
@@ -1048,7 +1048,7 @@ async function api(url, data, opts){
         
         for (const port of xamppPorts) {
             if (!redirectAttempted) {
-                const testUrl = `http://localhost:${port}${window.location.pathname}${window.location.search}`;
+                const testUrl = `${window.location.protocol}//${window.location.hostname}:${port}${window.location.pathname}${window.location.search}`;
                 fetch(testUrl, { method: 'HEAD' })
                     .then(response => {
                         if (response.ok && !redirectAttempted) {
@@ -6400,7 +6400,11 @@ async function renderLaporan(){
                     imgSrc = '/storage/' + fotoData;
                 } else {
                     // Assume it's a filename in attendance folder
-                    imgSrc = '/storage/attendance/' + fotoData;
+                    const cleanFoto = fotoData.trim();
+                    if (cleanFoto === '' || cleanFoto === 'attendance/') {
+                        return `<div class="text-center text-gray-400">-</div>`;
+                    }
+                    imgSrc = '/storage/attendance/' + cleanFoto;
                 }
                 
                 if (attId === 2451 || attId === 2447) {

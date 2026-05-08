@@ -218,13 +218,23 @@ class AttendanceController extends Controller
                 'lng_masuk'      => 'required|numeric',
                 'lokasi_masuk'   => 'required|string',
                 'ket'            => 'required|in:wfo,wfa,overtime',
-                'landmark_masuk' => 'nullable|string', // JSON 68 titik landmark wajah
+                'landmark_masuk' => 'nullable|string',
                 'ekspresi_masuk' => 'nullable|string',
-                'image'          => 'nullable|string', // Base64 bukti presensi (akan dikompres)
+                'image'          => 'nullable|string',
+            ], [
+                'lat_masuk.required'    => 'Latitude lokasi masuk wajib diisi.',
+                'lng_masuk.required'    => 'Longitude lokasi masuk wajib diisi.',
+                'lokasi_masuk.required' => 'Nama lokasi masuk wajib diisi.',
+                'ket.required'         => 'Keterangan presensi (WFO/WFA/Overtime) wajib dipilih.',
+                'ket.in'               => 'Keterangan presensi harus berupa wfo, wfa, atau overtime.',
             ]);
 
             if ($validator->fails()) {
-                return response()->json(['ok' => false, 'message' => 'Validasi gagal', 'errors' => $validator->errors()], 400);
+                return response()->json([
+                    'ok'      => false,
+                    'message' => 'Validasi gagal. Silakan periksa kembali data Anda.',
+                    'errors'  => $validator->errors()
+                ], 400);
             }
 
             $user = $request->user();
@@ -235,7 +245,10 @@ class AttendanceController extends Controller
                 ->first();
 
             if ($existing) {
-                return response()->json(['ok' => false, 'message' => 'Anda sudah absen masuk hari ini'], 400);
+                return response()->json([
+                    'ok'      => false,
+                    'message' => 'Anda sudah melakukan absen masuk untuk hari ini.'
+                ], 400);
             }
 
             $attendance = Attendance::create([
@@ -247,16 +260,20 @@ class AttendanceController extends Controller
                 'lokasi_masuk'   => $request->lokasi_masuk,
                 'ket'            => $request->ket,
                 'status'         => 'ontime',
-                'landmark_masuk' => $request->landmark_masuk, // Gantikan screenshot
+                'landmark_masuk' => $request->landmark_masuk,
                 'ekspresi_masuk' => $request->ekspresi_masuk,
                 'foto_masuk'     => $request->image ? 'attendance/' . $this->optimizeAndSaveBase64($request->image, 'attendance', null, 200, 60) : null,
             ]);
 
-            return response()->json(['ok' => true, 'message' => 'Absen masuk berhasil', 'data' => $attendance], 201);
+            return response()->json([
+                'ok'      => true,
+                'message' => 'Absen masuk berhasil dilakukan. Semangat bekerja!',
+                'data'    => $attendance
+            ], 201);
         } catch (Exception $e) {
             return response()->json([
                 'ok'          => false,
-                'message'     => 'Gagal melakukan absen masuk',
+                'message'     => 'Terjadi kesalahan sistem saat melakukan absen masuk.',
                 'debug_error' => $e->getMessage()
             ], 500);
         }
@@ -273,13 +290,21 @@ class AttendanceController extends Controller
                 'lat_pulang'      => 'required|numeric',
                 'lng_pulang'      => 'required|numeric',
                 'lokasi_pulang'   => 'required|string',
-                'landmark_pulang' => 'nullable|string', // JSON 68 titik landmark wajah
+                'landmark_pulang' => 'nullable|string',
                 'ekspresi_pulang' => 'nullable|string',
-                'image'           => 'nullable|string', // Base64 bukti presensi (akan dikompres)
+                'image'           => 'nullable|string',
+            ], [
+                'lat_pulang.required'    => 'Latitude lokasi pulang wajib diisi.',
+                'lng_pulang.required'    => 'Longitude lokasi pulang wajib diisi.',
+                'lokasi_pulang.required' => 'Nama lokasi pulang wajib diisi.',
             ]);
 
             if ($validator->fails()) {
-                return response()->json(['ok' => false, 'message' => 'Validasi gagal', 'errors' => $validator->errors()], 400);
+                return response()->json([
+                    'ok'      => false,
+                    'message' => 'Validasi gagal. Silakan periksa kembali data Anda.',
+                    'errors'  => $validator->errors()
+                ], 400);
             }
 
             $user = $request->user();
@@ -290,7 +315,10 @@ class AttendanceController extends Controller
                 ->first();
 
             if (!$attendance) {
-                return response()->json(['ok' => false, 'message' => 'Data absen masuk tidak ditemukan atau Anda sudah absen pulang'], 400);
+                return response()->json([
+                    'ok'      => false,
+                    'message' => 'Data absen masuk hari ini tidak ditemukan atau Anda sudah melakukan absen pulang.'
+                ], 400);
             }
 
             $attendance->update([
@@ -299,16 +327,20 @@ class AttendanceController extends Controller
                 'lat_pulang'      => $request->lat_pulang,
                 'lng_pulang'      => $request->lng_pulang,
                 'lokasi_pulang'   => $request->lokasi_pulang,
-                'landmark_pulang' => $request->landmark_pulang, // Gantikan screenshot
+                'landmark_pulang' => $request->landmark_pulang,
                 'ekspresi_pulang' => $request->ekspresi_pulang,
                 'foto_pulang'     => $request->image ? 'attendance/' . $this->optimizeAndSaveBase64($request->image, 'attendance', null, 200, 60) : null,
             ]);
 
-            return response()->json(['ok' => true, 'message' => 'Absen pulang berhasil', 'data' => $attendance]);
+            return response()->json([
+                'ok'      => true,
+                'message' => 'Absen pulang berhasil dilakukan. Hati-hati di jalan!',
+                'data'    => $attendance
+            ]);
         } catch (Exception $e) {
             return response()->json([
                 'ok'          => false,
-                'message'     => 'Gagal melakukan absen pulang',
+                'message'     => 'Terjadi kesalahan sistem saat melakukan absen pulang.',
                 'debug_error' => $e->getMessage()
             ], 500);
         }

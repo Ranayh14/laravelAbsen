@@ -32,12 +32,12 @@ trait ImageOptimizer
             if (!$imageData) return null;
 
             // Load image using GD
-            $srcImage = imagecreatefromstring($imageData);
+            $srcImage = \imagecreatefromstring($imageData);
             if (!$srcImage) return null;
 
             // Get original dimensions
-            $width = imagesx($srcImage);
-            $height = imagesy($srcImage);
+            $width = \imagesx($srcImage);
+            $height = \imagesy($srcImage);
 
             // Calculate new dimensions (maintain aspect ratio)
             $newWidth = $width;
@@ -48,10 +48,10 @@ trait ImageOptimizer
             }
 
             // Create new true color image
-            $dstImage = imagecreatetruecolor($newWidth, $newHeight);
+            $dstImage = \imagecreatetruecolor($newWidth, $newHeight);
             
             // Preserve transparency for PNGs if needed (but we'll convert to JPG for size)
-            imagecopyresampled($dstImage, $srcImage, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+            \imagecopyresampled($dstImage, $srcImage, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
 
             // Generate filename if not provided
             if (!$filename) {
@@ -66,11 +66,11 @@ trait ImageOptimizer
             $fullPath = storage_path('app/public/' . $path . '/' . $filename);
 
             // Save as JPEG with compression
-            imagejpeg($dstImage, $fullPath, $quality);
+            \imagejpeg($dstImage, $fullPath, $quality);
 
             // Free memory
-            imagedestroy($srcImage);
-            imagedestroy($dstImage);
+            \imagedestroy($srcImage);
+            \imagedestroy($dstImage);
 
             return $filename;
         } catch (Exception $e) {

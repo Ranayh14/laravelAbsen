@@ -65,29 +65,51 @@ class HelpController extends Controller
     public function store(Request $request)
     {
         try {
-            $validator = Validator::make($request->all(), [
-                'subject' => 'required|string|max:255',
-                'message' => 'required|string',
-            ], [
-                'subject.required' => 'Subjek wajib diisi.',
-                'message.required' => 'Pesan wajib diisi.',
+            $rules = [
+                'request_type' => 'required|in:past_attendance,late_attendance,bug_report',
+            ];
+
+            // Validation based on type
+            if ($request->request_type === 'past_attendance') {
+                $rules['tanggal'] = 'required|date';
+                $rules['jenis_izin'] = 'required|in:izin,sakit';
+                $rules['alasan_izin'] = 'required|string';
+                $rules['bukti_izin'] = 'required|string'; // Base64
+            } elseif ($request->request_type === 'late_attendance') {
+                $rules['tanggal'] = 'required|date';
+                $rules['jam_masuk'] = 'required';
+                $rules['attendance_type'] = 'required|in:wfo,wfa,overtime';
+                $rules['bukti_presensi'] = 'required|string'; // Base64 or screenshot
+            } elseif ($request->request_type === 'bug_report') {
+                $rules['bug_description'] = 'required|string';
+            }
+
+            $validator = Validator::make($request->all(), $rules, [
+                'request_type.required' => 'Tipe request wajib diisi.',
+                'tanggal.required' => 'Tanggal wajib diisi.',
+                'jenis_izin.required' => 'Jenis izin wajib diisi.',
+                'alasan_izin.required' => 'Alasan izin wajib diisi.',
+                'bukti_izin.required' => 'Bukti izin wajib dilampirkan.',
+                'jam_masuk.required' => 'Jam masuk wajib diisi.',
+                'attendance_type.required' => 'Tipe presensi wajib diisi.',
+                'bukti_presensi.required' => 'Bukti presensi wajib dilampirkan.',
+                'bug_description.required' => 'Deskripsi bug wajib diisi.',
             ]);
 
             if ($validator->fails()) {
                 return response()->json([
                     'ok' => false, 
-                    'message' => 'Validasi gagal.', 
+                    'message' => 'Validasi gagal. Silakan lengkapi data Anda.', 
                     'errors' => $validator->errors()
                 ], 400);
             }
 
             $user = $request->user();
-            $helpRequest = AdminHelpRequest::create([
-                'user_id' => $user->id,
-                'subject' => $request->subject,
-                'message' => $request->message,
-                'status' => 'pending'
-            ]);
+            $data = $request->all();
+            $data['user_id'] = $user->id;
+            $data['status'] = 'pending';
+
+            $helpRequest = AdminHelpRequest::create($data);
 
             return response()->json([
                 'ok' => true, 
@@ -116,26 +138,11 @@ class HelpController extends Controller
                 return response()->json(['ok' => false, 'message' => 'Anda tidak memiliki akses (Unauthorized).'], 403);
             }
 
-            $validator = Validator::make($request->all(), [
-                'subject' => 'required|string|max:255',
-                'message' => 'required|string',
-            ], [
-                'subject.required' => 'Subjek wajib diisi.',
-                'message.required' => 'Pesan wajib diisi.',
-            ]);
-
-            if ($validator->fails()) {
-                return response()->json([
-                    'ok' => false, 
-                    'message' => 'Validasi gagal.', 
-                    'errors' => $validator->errors()
-                ], 400);
+            if ($helpRequest->status !== 'pending' && $request->user()->role !== 'admin') {
+                return response()->json(['ok' => false, 'message' => 'Request yang sudah diproses tidak dapat diubah.'], 400);
             }
 
-            $helpRequest->update([
-                'subject' => $request->subject,
-                'message' => $request->message
-            ]);
+            $helpRequest->update($request->all());
 
             return response()->json([
                 'ok' => true, 
@@ -209,13 +216,10 @@ class HelpController extends Controller
                 'admin_note' => $request->admin_note ?? $helpRequest->admin_note
             ]);
 
-            // Segarkan data dari database
-            $helpRequest->refresh();
-
             return response()->json([
                 'ok' => true, 
                 'message' => 'Status bantuan berhasil diperbarui.',
-                'data' => $helpRequest // <-- Data terbaru disertakan di sini
+                'data' => $helpRequest
             ]);
         } catch (Exception $e) {
             return response()->json([

@@ -13,6 +13,7 @@ from typing import List, Dict, Optional, Tuple
 import mysql.connector
 from mysql.connector import Error
 import logging
+import facenet_config as config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -21,8 +22,8 @@ logger = logging.getLogger(__name__)
 class FaceNetDatabase:
     """Database manager for FaceNet face embeddings."""
     
-    def __init__(self, host: str = 'localhost', database: str = 'absen_db', 
-                 user: str = 'root', password: str = ''):
+    def __init__(self, host: str = config.DB_HOST, database: str = config.DB_NAME, 
+                 user: str = config.DB_USER, password: str = config.DB_PASS):
         """Initialize database connection."""
         self.host = host
         self.database = database

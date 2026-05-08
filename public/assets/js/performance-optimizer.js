@@ -208,7 +208,7 @@ class PerformanceOptimizer {
             const response = await fetch('/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: new URLSearchParams({ ajax: action })
+                body: new URLSearchParams({ ajax: action, light: 1 })
             });
 
             const text = await response.text();

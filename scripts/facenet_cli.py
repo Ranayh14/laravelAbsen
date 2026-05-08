@@ -96,15 +96,16 @@ def main():
         
         elif action == 'recognize_face':
             result = service.recognize_face(image, threshold)
-            if result:
+            if result and 'user_id' in result:
                 print(json.dumps({
                     'success': True,
                     'data': result
                 }))
             else:
+                dist_info = f" (Distance: {result['distance']:.4f})" if result and 'distance' in result else ""
                 print(json.dumps({
                     'success': False,
-                    'error': 'Failed to recognize face'
+                    'error': f'Failed to recognize face{dist_info}'
                 }))
         
         elif action == 'process_attendance':

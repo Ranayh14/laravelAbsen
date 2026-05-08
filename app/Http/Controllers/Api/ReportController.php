@@ -256,20 +256,38 @@ class ReportController extends Controller
     public function storeMonthly(Request $request)
     {
         try {
+            // Konversi string JSON ke array jika dikirim via form-data atau urlencoded
+            if (is_string($request->achievements)) {
+                $decoded = json_decode($request->achievements, true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    $request->merge(['achievements' => $decoded]);
+                }
+            }
+            if (is_string($request->obstacles)) {
+                $decoded = json_decode($request->obstacles, true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    $request->merge(['obstacles' => $decoded]);
+                }
+            }
+
             $validator = Validator::make($request->all(), [
                 'month' => 'required|integer|between:1,12',
                 'year' => 'required|integer',
-                'content' => 'required|string',
+                'summary' => 'required|string',
+                'achievements' => 'nullable|array',
+                'obstacles' => 'nullable|array',
             ], [
                 'month.required' => 'Bulan laporan wajib diisi.',
                 'year.required' => 'Tahun laporan wajib diisi.',
-                'content.required' => 'Isi laporan wajib diisi.',
+                'summary.required' => 'Ringkasan pekerjaan wajib diisi.',
+                'achievements.array' => 'Format pencapaian harus berupa array atau JSON valid.',
+                'obstacles.array' => 'Format kendala harus berupa array atau JSON valid.',
             ]);
 
             if ($validator->fails()) {
                 return response()->json([
                     'ok' => false, 
-                    'message' => 'Validasi gagal.', 
+                    'message' => 'Validasi gagal. Silakan periksa kembali data Anda.', 
                     'errors' => $validator->errors()
                 ], 400);
             }
@@ -277,7 +295,12 @@ class ReportController extends Controller
             $user = $request->user();
             $report = MonthlyReport::updateOrCreate(
                 ['user_id' => $user->id, 'month' => $request->month, 'year' => $request->year],
-                ['content' => $request->content, 'status' => 'pending']
+                [
+                    'summary' => $request->summary,
+                    'achievements' => $request->achievements ?? [],
+                    'obstacles' => $request->obstacles ?? [],
+                    'status' => 'pending'
+                ]
             );
 
             return response()->json([
@@ -306,21 +329,43 @@ class ReportController extends Controller
                 return response()->json(['ok' => false, 'message' => 'Anda tidak memiliki akses (Unauthorized).'], 403);
             }
 
+            // Konversi string JSON ke array jika dikirim via form-data atau urlencoded
+            if (is_string($request->achievements)) {
+                $decoded = json_decode($request->achievements, true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    $request->merge(['achievements' => $decoded]);
+                }
+            }
+            if (is_string($request->obstacles)) {
+                $decoded = json_decode($request->obstacles, true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    $request->merge(['obstacles' => $decoded]);
+                }
+            }
+
             $validator = Validator::make($request->all(), [
-                'content' => 'required|string',
+                'summary' => 'required|string',
+                'achievements' => 'nullable|array',
+                'obstacles' => 'nullable|array',
             ], [
-                'content.required' => 'Isi laporan wajib diisi.',
+                'summary.required' => 'Ringkasan pekerjaan wajib diisi.',
+                'achievements.array' => 'Format pencapaian harus berupa array atau JSON valid.',
+                'obstacles.array' => 'Format kendala harus berupa array atau JSON valid.',
             ]);
 
             if ($validator->fails()) {
                 return response()->json([
                     'ok' => false, 
-                    'message' => 'Validasi gagal.', 
+                    'message' => 'Validasi gagal. Silakan periksa kembali data Anda.', 
                     'errors' => $validator->errors()
                 ], 400);
             }
 
-            $report->update(['content' => $request->content]);
+            $report->update([
+                'summary' => $request->summary,
+                'achievements' => $request->achievements ?? $report->achievements,
+                'obstacles' => $request->obstacles ?? $report->obstacles,
+            ]);
 
             return response()->json([
                 'ok' => true, 

@@ -99,17 +99,10 @@
                                 <p class="text-sm font-semibold text-slate-700 leading-tight"><?php echo htmlspecialchars($_SESSION['user']['nama'] ?? 'Akun'); ?></p>
                                 <p class="text-[10px] text-slate-500 uppercase tracking-wide"><?php echo htmlspecialchars($_SESSION['user']['role'] ?? 'User'); ?></p>
                             </div>
-                            <?php 
-                            $avatar_src = 'https://ui-avatars.com/api/?background=4f46e5&color=fff&name=' . urlencode($_SESSION['user']['nama'] ?? 'A') . '&size=80';
-                            if (!empty($_SESSION['user']['foto_base64'])) {
-                                $foto = $_SESSION['user']['foto_base64'];
-                                if (strpos($foto, 'data:') !== 0) {
-                                    $foto = 'data:image/png;base64,' . $foto;
-                                }
-                                $avatar_src = $foto;
-                            }
-                            ?>
-                            <img src="<?php echo $avatar_src; ?>" class="w-9 h-9 rounded-full shadow-sm ring-2 ring-white object-cover" alt="profile">
+                        <?php 
+                        $avatar_src = getAvatarUrl($_SESSION['user']['foto_base64'] ?? '', $_SESSION['user']['nama'] ?? 'A');
+                        ?>
+                        <img src="<?php echo $avatar_src; ?>" class="w-9 h-9 rounded-full shadow-sm ring-2 ring-white object-cover" alt="profile">
                         </button>
                         <!-- Dropdown -->
                         <div class="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-slate-100 py-1 hidden group-hover:block animate-fade-in-up">
@@ -1178,8 +1171,8 @@ async function api(url, data, opts){
 
 // Port Detection and Fix
 (function() {
-    // Check if we're on the wrong port
-    if (window.location.port === '3000') {
+    // Check if we're on the wrong port (Local development only)
+    if (window.location.port === '3000' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
         console.warn('Detected port 3000, redirecting to correct XAMPP port...');
         // Try common XAMPP ports
         const xamppPorts = ['80', '8080', '8000'];
@@ -1187,7 +1180,7 @@ async function api(url, data, opts){
         
         for (const port of xamppPorts) {
             if (!redirectAttempted) {
-                const testUrl = `http://localhost:${port}${window.location.pathname}${window.location.search}`;
+                const testUrl = `${window.location.protocol}//${window.location.hostname}:${port}${window.location.pathname}${window.location.search}`;
                 fetch(testUrl, { method: 'HEAD' })
                     .then(response => {
                         if (response.ok && !redirectAttempted) {

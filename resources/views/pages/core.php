@@ -59,16 +59,18 @@ $DEFAULT_ADMIN_PASSWORD = 'admin123';
 function cleanupOldAttendancePhotos(PDO $pdo): int {
     $tenDaysAgo = date('Y-m-d', strtotime('-14 days'));
     
-    // Set photos and landmarks to NULL if date is older than 10 days
+    // Set photos, screenshots, and landmarks to NULL if date is older than 14 days (approx 10 working days)
     // We keep the expression to show labels
     $stmt = $pdo->prepare("
         UPDATE attendance 
         SET foto_masuk = NULL, 
+            screenshot_masuk = NULL,
             landmark_masuk = NULL, 
             foto_pulang = NULL, 
+            screenshot_pulang = NULL,
             landmark_pulang = NULL 
         WHERE DATE(jam_masuk_iso) < :date
-        AND (foto_masuk IS NOT NULL OR foto_pulang IS NOT NULL OR landmark_masuk IS NOT NULL OR landmark_pulang IS NOT NULL)
+        AND (foto_masuk IS NOT NULL OR screenshot_masuk IS NOT NULL OR foto_pulang IS NOT NULL OR screenshot_pulang IS NOT NULL OR landmark_masuk IS NOT NULL OR landmark_pulang IS NOT NULL)
     ");
     $stmt->execute([':date' => $tenDaysAgo]);
     
@@ -1308,6 +1310,35 @@ function saveBase64Image($base64String, $subDir) {
     }
 }
 
+/**
+ * Helper to get the correct URL for a user's avatar
+ * Supports: Data URL, storage path, raw filename, and raw base64.
+ */
+function getAvatarUrl($foto, $nama = 'A') {
+    $default = 'https://ui-avatars.com/api/?background=4f46e5&color=fff&name=' . urlencode($nama) . '&size=128';
+    if (empty($foto)) return $default;
+    
+    // If it's a data URL (Base64)
+    if (strpos($foto, 'data:') === 0) return $foto;
+    
+    // If it's a path starting with storage/
+    if (strpos($foto, 'storage/') === 0) {
+        return '/' . $foto;
+    }
+    
+    // If it's just a filename, assume it's in storage/users/
+    if (strpos($foto, '.') !== false && strpos($foto, '/') === false) {
+        return '/storage/users/' . $foto;
+    }
+    
+    // If it's raw Base64 without data prefix (backward compatibility)
+    if (strlen($foto) > 500) {
+        return 'data:image/png;base64,' . $foto;
+    }
+    
+    return $default;
+}
+
 // Function to get first name (first word) from full name
 function getFirstName($fullName) {
     if (empty($fullName)) return '';
@@ -1485,7 +1516,7 @@ function generateFaceEmbedding($base64Image) {
         ];
         
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_api.php');
+        curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_api.php');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -1519,7 +1550,7 @@ function recognizeFace($base64Image, $threshold = 1.0) {
         ];
         
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_api.php');
+        curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_api.php');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -1586,7 +1617,7 @@ function processAttendanceWithFaceNet($base64Image) {
         ];
         
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_api.php');
+        curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_api.php');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -1620,7 +1651,7 @@ function generateEnhancedFaceEmbedding($base64Image) {
         ];
         
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_enhanced_api.php');
+        curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_enhanced_api.php');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -1658,7 +1689,7 @@ function processHighAccuracyAttendance($base64Image, $userId = null) {
         }
         
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_high_accuracy_api.php');
+        curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_high_accuracy_api.php');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
@@ -1694,7 +1725,7 @@ function processOptimizedAttendance($base64Image, $threshold = 0.5) {
         ];
         
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_optimized_api.php');
+        curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_optimized_api.php');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
@@ -1729,7 +1760,7 @@ function recognizeFaceOptimized($base64Image, $threshold = 0.5) {
         ];
         
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_optimized_api.php');
+        curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_optimized_api.php');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
@@ -1763,7 +1794,7 @@ function generateOptimizedEmbedding($base64Image) {
         ];
         
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_optimized_api.php');
+        curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_optimized_api.php');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
@@ -1794,7 +1825,7 @@ function getOptimizedPerformanceStats() {
         $data = ['action' => 'get_performance_stats'];
         
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_optimized_api.php');
+        curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_optimized_api.php');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
@@ -1830,7 +1861,7 @@ function processUltraAccurateAttendance($base64Image, $validationLevel = 'normal
         ];
         
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_ultra_accurate_api.php');
+        curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_ultra_accurate_api.php');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
@@ -1861,7 +1892,7 @@ function getUltraAccuratePerformanceStats() {
         $data = ['action' => 'get_performance_stats'];
         
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_ultra_accurate_api.php');
+        curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_ultra_accurate_api.php');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
@@ -1921,7 +1952,7 @@ function getIPhoneLevelPerformanceStats() {
         $data = ['action' => 'get_performance_stats'];
         
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_iphone_accurate_api.php');
+        curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_iphone_accurate_api.php');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
@@ -2008,7 +2039,7 @@ function generateHighAccuracyEmbedding($base64Image, $userId) {
         ];
         
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_high_accuracy_api.php');
+        curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_high_accuracy_api.php');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
@@ -2039,7 +2070,7 @@ function getHighAccuracyPerformanceStats() {
         $data = ['action' => 'get_performance_stats'];
         
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_high_accuracy_api.php');
+        curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_high_accuracy_api.php');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
@@ -2074,7 +2105,7 @@ function recognizeEnhancedFace($base64Image, $threshold = 1.0) {
         ];
         
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_enhanced_api.php');
+        curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_enhanced_api.php');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -2133,7 +2164,7 @@ function processEnhancedAttendance($base64Image) {
         ];
         
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_enhanced_api.php');
+        curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_enhanced_api.php');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);

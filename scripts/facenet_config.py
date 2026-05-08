@@ -28,7 +28,7 @@ IMAGE_QUALITY = 95
 
 # Database settings
 DB_HOST = 'localhost'
-DB_NAME = 'absen_db'
+DB_NAME = 'laravel_absen_db'
 DB_USER = 'root'
 DB_PASS = ''
 

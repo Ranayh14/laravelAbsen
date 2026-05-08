@@ -500,18 +500,16 @@ if (isset($_REQUEST['ajax'])) {
 
     if ($action === 'get_member_photo') {
         $id = (int)($_GET['id'] ?? 0);
-        $stmt = $pdo->prepare("SELECT foto_base64 FROM users WHERE id = :id");
+        $stmt = $pdo->prepare("SELECT foto_base64, nama FROM users WHERE id = :id");
         $stmt->execute([':id' => $id]);
-        $img = $stmt->fetchColumn();
+        $row = $stmt->fetch();
         
-        // If image is a path, try to read it
-        if ($img && strpos($img, 'data:image/') !== 0 && file_exists(public_path($img))) {
-            $ext = pathinfo($img, PATHINFO_EXTENSION);
-            $data = file_get_contents(public_path($img));
-            $img = 'data:image/' . ($ext === 'jpg' ? 'jpeg' : $ext) . ';base64,' . base64_encode($data);
+        if ($row) {
+            $img = getAvatarUrl($row['foto_base64'], $row['nama']);
+            jsonResponse(['ok' => true, 'image' => $img]);
+        } else {
+            jsonResponse(['ok' => false]);
         }
-        
-        jsonResponse(['ok'=>true, 'image' => $img]);
     }
 
     if ($action === 'get_startups') {
@@ -1592,7 +1590,7 @@ if (isset($_REQUEST['ajax'])) {
         ];
         
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_api.php');
+        curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_api.php');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -1642,7 +1640,7 @@ if (isset($_REQUEST['ajax'])) {
         ];
         
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_api.php');
+        curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_api.php');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -1678,7 +1676,7 @@ if ($action === 'process_attendance_facenet' && $_SERVER['REQUEST_METHOD'] === '
     ];
     
     $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_api.php');
+    curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_api.php');
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -1739,7 +1737,7 @@ if ($action === 'generate_enhanced_face_embedding' && $_SERVER['REQUEST_METHOD']
     ];
     
     $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_enhanced_api.php');
+    curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_enhanced_api.php');
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -1775,7 +1773,7 @@ if ($action === 'recognize_enhanced_face' && $_SERVER['REQUEST_METHOD'] === 'POS
     ];
     
     $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_enhanced_api.php');
+    curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_enhanced_api.php');
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -1811,7 +1809,7 @@ if ($action === 'process_enhanced_attendance' && $_SERVER['REQUEST_METHOD'] === 
     ];
     
     $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, 'http://localhost/facenet_enhanced_api.php');
+    curl_setopt($ch, CURLOPT_URL, 'http://127.0.0.1/facenet_enhanced_api.php');
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -4059,8 +4057,8 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
                         ':sp' => null, 
                         ':lp' => null,
                         ':ket' => $ket,
-                        ':awfa' => $alasanWfa,
-                        ':aovt' => $alasanOvertime
+                        ':aw' => $alasanWfa,
+                        ':ao' => $alasanOvertime
                     ]);
                 }
             }

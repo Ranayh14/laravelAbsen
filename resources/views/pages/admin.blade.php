@@ -77,9 +77,9 @@
                         $words = explode(' ', $nama);
                         foreach ($words as $w) { if (!empty($w)) $initials .= strtoupper($w[0]); }
                         $initials = substr($initials, 0, 2);
-                        
-                        if (!empty($_SESSION['user']['foto_base64'])): ?>
-                            <img src="<?php echo $_SESSION['user']['foto_base64']; ?>" class="profile-avatar-img ring-2 ring-white" alt="profile">
+                        ?>
+                        <?php if (!empty($_SESSION['user']['foto_base64'])): ?>
+                            <img src="<?php echo getAvatarUrl($_SESSION['user']['foto_base64'], $_SESSION['user']['nama'] ?? 'A'); ?>" class="profile-avatar-img ring-2 ring-white" alt="profile">
                         <?php else: ?>
                             <div class="avatar-initials"><?php echo $initials; ?></div>
                         <?php endif; ?>
