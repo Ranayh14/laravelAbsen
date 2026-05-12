@@ -31,7 +31,8 @@
     
                     <div id="loading-overlay" class="absolute inset-0 bg-black/90 flex flex-col items-center justify-center text-white z-20 hidden">
                         <i class="fi fi-sr-spinner animate-spin text-4xl mb-3 text-blue-500"></i>
-                        <p class="font-medium tracking-wide">Memuat Kamera...</p>
+                        <p class="font-medium tracking-wide">Memuat Sistem AI...</p>
+                        <p id="loading-progress" class="text-xs text-gray-400 mt-2">Mohon tunggu sebentar...</p>
                     </div>
                 </div>
 

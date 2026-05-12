@@ -288,18 +288,26 @@ window.loadLabeledFaceDescriptors = async function() {
 
     // --- Medium path: Use pre-computed face_embedding from server DB (fast, no image loading) ---
     labeledFaceDescriptors = [];
-    const membersWithEmbedding = membersList.filter(m => m.face_embedding);
-    const membersNeedingCompute = membersList.filter(m => !m.face_embedding && (m.foto_base64 || m.has_foto));
+    const membersWithValidEmbedding = membersList.filter(m => {
+        if (!m.face_embedding) return false;
+        try {
+            const emb = JSON.parse(m.face_embedding);
+            return Array.isArray(emb) && emb.length === 128;
+        } catch (e) { return false; }
+    });
+    
+    const membersNeedingCompute = membersList.filter(m => {
+        const hasCompatibleEmbedding = m.face_embedding && (JSON.parse(m.face_embedding).length === 128);
+        return !hasCompatibleEmbedding && (m.foto_base64 || m.has_foto);
+    });
 
-    if (membersWithEmbedding.length > 0) {
-        console.log(`⚡ Loading ${membersWithEmbedding.length} pre-computed embeddings from server...`);
-        for (const m of membersWithEmbedding) {
+    if (membersWithValidEmbedding.length > 0) {
+        console.log(`⚡ Loading ${membersWithValidEmbedding.length} pre-computed 128-dim embeddings from server...`);
+        for (const m of membersWithValidEmbedding) {
             try {
                 const desc = new Float32Array(JSON.parse(m.face_embedding));
-                if (desc.length === 128) {
-                    const label = String(m.nim || m.nama || m.id);
-                    labeledFaceDescriptors.push(new faceapi.LabeledFaceDescriptors(label, [desc]));
-                }
+                const label = String(m.nim || m.nama || m.id);
+                labeledFaceDescriptors.push(new faceapi.LabeledFaceDescriptors(label, [desc]));
             } catch (e) { console.warn('Failed to parse embedding for', m.nama); }
         }
         console.log(`✅ Loaded ${labeledFaceDescriptors.length} embeddings instantly from server.`);

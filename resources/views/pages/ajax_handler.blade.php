@@ -12,7 +12,7 @@ if (isset($_REQUEST['ajax'])) {
     }
 
     // Must be authenticated for all endpoints except auth-related and public landing scan
-    if (!in_array($action, ['login', 'register', 'get_members', 'get_member_photo', 'save_attendance', 'get_today_attendance', 'forgot_password', 'verify_otp', 'reset_password', 'get_ga_qr', 'get_public_daily_report_stats', 'reverse_geocode', 'submit_help_request', 'search_address', 'get_clockin_location', 'get_settings'], true)) {
+    if (!in_array($action, ['login', 'register', 'get_members', 'get_member_photo', 'save_face_embedding', 'save_attendance', 'get_today_attendance', 'forgot_password', 'verify_otp', 'reset_password', 'get_ga_qr', 'get_public_daily_report_stats', 'reverse_geocode', 'submit_help_request', 'search_address', 'get_clockin_location', 'get_settings'], true)) {
         if (!isset($_SESSION['user'])) jsonResponse(['error' => 'Unauthorized'], 401);
         
         // Auto-cleanup old photos when any authorized action is performed
@@ -422,6 +422,23 @@ if (isset($_REQUEST['ajax'])) {
         jsonResponse(['ok' => true]);
     }
 
+    if ($action === 'save_face_embedding') {
+        $id = (int)($_POST['id'] ?? 0);
+        $embedding = $_POST['embedding'] ?? null;
+        $landmarks = $_POST['landmarks'] ?? null;
+        
+        if ($id > 0 && $embedding) {
+            $stmt = $pdo->prepare("UPDATE users SET face_embedding = :embedding, face_landmarks = :landmarks WHERE id = :id");
+            $res = $stmt->execute([
+                ':embedding' => $embedding,
+                ':landmarks' => $landmarks,
+                ':id'        => $id
+            ]);
+            jsonResponse(['ok' => $res]);
+        }
+        jsonResponse(['ok' => false, 'message' => 'Invalid data'], 400);
+    }
+
     if ($action === 'get_members') {
         $light = ($_GET['light'] ?? '0') === '1';
         $noEmbeddings = ($_GET['no_embeddings'] ?? '0') === '1';
@@ -430,8 +447,9 @@ if (isset($_REQUEST['ajax'])) {
         if (!$light) {
             $fields .= ", foto_base64";
         } else {
-            // Optimization: Only return photo if embedding is missing
-            $fields .= ", (CASE WHEN face_embedding IS NULL OR face_embedding = '' THEN foto_base64 ELSE NULL END) as foto_base64";
+            // Optimization: Only return photo if embedding is missing OR seems incompatible (e.g. 512-dim)
+            // A 128-dim JSON array is usually < 3000 chars. 512-dim is much larger (> 7000 chars).
+            $fields .= ", (CASE WHEN face_embedding IS NULL OR face_embedding = '' OR CHAR_LENGTH(face_embedding) > 3000 THEN foto_base64 ELSE NULL END) as foto_base64";
         }
         
         if (!$noEmbeddings) {
@@ -440,6 +458,41 @@ if (isset($_REQUEST['ajax'])) {
         
         $stmt = $pdo->query("SELECT $fields FROM users WHERE role='pegawai'");
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Ensure foto_base64 is a valid URL or base64 data
+        foreach ($rows as &$row) {
+            if (!empty($row['foto_base64']) && strpos($row['foto_base64'], 'data:') !== 0 && strpos($row['foto_base64'], 'http') !== 0) {
+                // If it's just a filename, try to convert to base64 for reliability
+                $filename = $row['foto_base64'];
+                $found = false;
+                
+                // Try absolute paths via Laravel helpers first
+                $paths = [];
+                if (function_exists('storage_path')) $paths[] = storage_path('app/public/users/' . $filename);
+                if (function_exists('public_path')) $paths[] = public_path('storage/users/' . $filename);
+                
+                // Fallback to relative path from this file
+                $paths[] = __DIR__ . '/../../../storage/app/public/users/' . $filename;
+                
+                foreach ($paths as $filePath) {
+                    if (file_exists($filePath)) {
+                        $type = pathinfo($filePath, PATHINFO_EXTENSION);
+                        $data = @file_get_contents($filePath);
+                        if ($data) {
+                            $row['foto_base64'] = 'data:image/' . ($type === 'jpg' ? 'jpeg' : $type) . ';base64,' . base64_encode($data);
+                            $found = true;
+                            break;
+                        }
+                    }
+                }
+                
+                if (!$found) {
+                    // Final fallback to URL if file not found locally
+                    $row['foto_base64'] = '/storage/users/' . $filename;
+                }
+            }
+        }
+        
         jsonResponse(['ok' => true, 'data' => $rows]);
     }
 

@@ -174,7 +174,8 @@ async function loadFaceApiModels() {
         await Promise.all([
             faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
             faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-            faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+            faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+            faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL)
         ]);
         window.faceApiModelsLoaded = true;
     } catch (e) {
@@ -244,19 +245,23 @@ async function loadLabeledFaceDescriptors() {
                     const foto = m.foto_base64 || m[7];
                     const name = m.nama || m[4] || 'User';
 
-                    // OPTIMIZED: Use pre-computed embedding from server if available
+                    // OPTIMIZED: Use pre-computed embedding from server ONLY if dimension matches (128)
                     if (embedding) {
                         try {
-                            const desc = new Float32Array(JSON.parse(embedding));
-                            if (desc.length === 128) {
+                            const parsed = JSON.parse(embedding);
+                            if (Array.isArray(parsed) && parsed.length === 128) {
+                                const desc = new Float32Array(parsed);
                                 return new faceapi.LabeledFaceDescriptors(label, [desc]);
+                            } else {
+                                console.log(`Skipping ${name}'s embedding (Dim mismatch: ${parsed.length}), falling back to photo...`);
                             }
                         } catch (e) { console.error('Error parsing embedding for', name); }
                     }
                     
                     if (!foto) return null;
+                    if (loadingOverlay) loadingOverlay.querySelector('#loading-progress').textContent = `Menghitung vektor wajah: ${name}...`;
                     const img = await faceapi.fetchImage(foto);
-                    const det = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 320 }))
+                    const det = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.3 }))
                         .withFaceLandmarks().withFaceDescriptor();
                     if (det) {
                         try {
@@ -264,10 +269,19 @@ async function loadLabeledFaceDescriptors() {
                             const userId = m.id || m[0];
                             if (userId) {
                                 const formData = new FormData();
-                                formData.append('action', 'save_computed_face_embedding');
-                                formData.append('user_id', userId);
+                                formData.append('ajax', 'save_face_embedding');
+                                formData.append('id', userId);
                                 formData.append('embedding', JSON.stringify(Array.from(det.descriptor)));
-                                fetch('?ajax=save_computed_face_embedding', { method: 'POST', body: formData }).catch(e => console.warn('Silently failed to save embedding'));
+                                formData.append('landmarks', JSON.stringify(det.landmarks.positions));
+                                if (typeof api === 'function') {
+                                    api('index.php?ajax=save_face_embedding', formData)
+                                        .then(res => console.log(`✅ Saved 128-dim embedding for ${name}`))
+                                        .catch(e => console.warn('Silently failed to save embedding'));
+                                } else {
+                                    fetch('index.php?ajax=save_face_embedding', { method: 'POST', body: formData })
+                                        .then(res => console.log(`✅ Saved 128-dim embedding for ${name}`))
+                                        .catch(e => console.warn('Silently failed to save embedding'));
+                                }
                             }
                         } catch (err) {}
                         
@@ -333,7 +347,7 @@ async function startScan(mode) {
 
     statusMessage('Menginisialisasi sistem...', 'bg-blue-100 text-blue-700');
 
-    // PARALLEL: Start camera, load models, and fetch descriptors at the same time
+    // PARALLEL: Start camera and load models
     const preWarmPromise = window._preWarmReady || Promise.resolve();
     
     await Promise.allSettled([
@@ -341,17 +355,17 @@ async function startScan(mode) {
         preWarmPromise,
         (async () => {
             if (!window.faceApiModelsLoaded) {
-                console.log('Loading Face API models...');
+                console.log('🚀 Loading Face API models...');
                 await loadFaceApiModels();
-            }
-        })(),
-        (async () => {
-            if (labeledFaceDescriptors.length === 0) {
-                console.log('Loading face descriptors...');
-                await loadLabeledFaceDescriptors();
             }
         })()
     ]);
+
+    // SEQUENTIAL: Only load descriptors AFTER models are ready (essential for fallback computation)
+    if (labeledFaceDescriptors.length === 0) {
+        console.log('🧬 Loading face descriptors...');
+        await loadLabeledFaceDescriptors();
+    }
 
     // Build FaceMatcher ONCE — reused every detection frame
     if (labeledFaceDescriptors.length > 0 && !faceMatcher) {
