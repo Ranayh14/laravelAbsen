@@ -429,7 +429,11 @@ if (isset($_REQUEST['ajax'])) {
         $fields = "id, role, email, nim, nama, prodi, startup, (CASE WHEN foto_base64 IS NOT NULL AND foto_base64 != '' THEN 1 ELSE 0 END) as has_foto";
         if (!$light) {
             $fields .= ", foto_base64";
+        } else {
+            // Optimization: Only return photo if embedding is missing
+            $fields .= ", (CASE WHEN face_embedding IS NULL OR face_embedding = '' THEN foto_base64 ELSE NULL END) as foto_base64";
         }
+        
         if (!$noEmbeddings) {
             $fields .= ", face_embedding";
         }
@@ -1330,8 +1334,8 @@ if (isset($_REQUEST['ajax'])) {
                                     
                                     error_log("Anti-Spoofing: IP-GPS Distance: " . round($distanceKm, 2) . " km");
                                     
-                                    // 50km tolerance (tightened from 150km to catch nearby spoofing)
-                                    if ($distanceKm > 50) {
+                                    // 500km tolerance (relaxed to accommodate mobile gateways which often differ from actual city)
+                                    if ($distanceKm > 500) {
                                         error_log("Anti-Spoofing: IP-GPS mismatch ($distanceKm km). IP: $publicIp ($ipLat, $ipLon), GPS: $lat, $lng");
                                         jsonResponse(['ok' => false, 'message' => 'Akurasi ditolak: Lokasi GPS terdeteksi terlalu jauh dari lokasi IP Internet Anda. Mohon matikan VPN / Proxy / Aplikasi Fake GPS.'], 400);
                                     }

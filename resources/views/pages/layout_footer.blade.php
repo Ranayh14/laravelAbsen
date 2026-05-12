@@ -535,7 +535,7 @@ async function loadLazyProof(id, type, containerId) {
         // Handle image data (Prioritas Utama: Foto Wajah / Bukti Izin)
         const imgData = r.data || r.image || r.evidence;
         if (r && r.ok && imgData) {
-            container.innerHTML = `<img src="${imgData}" class="w-full h-full object-cover rounded border shadow-sm hover:scale-110 transition-transform duration-200" onclick="showScreenshotModal('${imgData}', 'Bukti presensi')">` ;
+            container.innerHTML = `<img src="${imgData}" class="w-full h-full object-contain rounded border shadow-sm hover:scale-110 transition-transform duration-200" onclick="showScreenshotModal('${imgData}', 'Bukti presensi')">` ;
             return;
         }
 
@@ -6456,10 +6456,10 @@ async function renderLaporan(){
         if (att.ket && (att.ket === 'wfo' || att.ket === 'wfa' || att.ket === 'izin' || att.ket === 'sakit' || att.ket === 'overtime')) {
             const ketColors = {
                 'wfo': 'bg-green-500 hover:bg-green-600 text-white',
-                'wfa': 'bg-blue-500 hover:bg-blue-600 text-white', 
+                'wfa': 'bg-amber-400 hover:bg-amber-500 text-white', 
                 'izin': 'bg-yellow-500 hover:bg-yellow-600 text-white',
                 'sakit': 'bg-yellow-500 hover:bg-yellow-600 text-white',
-                'overtime': 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                'overtime': 'bg-orange-500 hover:bg-orange-600 text-white'
             };
             const colorClass = ketColors[att.ket] || 'bg-gray-500 hover:bg-gray-600 text-white';
             ketButton = `<button class="btn-view-ket ${colorClass} px-2 py-1 rounded-full text-xs font-medium transition-colors duration-200" data-json='${JSON.stringify(att).replace(/'/g,"&apos;")}' title="Lihat Detail ${att.ket.toUpperCase()}">${att.ket.toUpperCase()}</button>`;
@@ -7952,7 +7952,7 @@ function renderRekapData(data, m, y) {
     };
 
     // --- Counters for Stats ---
-    const stats = { happy: 0, leave: 0, work: 0, alpha: 0, total: 0 };
+    const stats = { happy: 0, leave: 0, wfo: 0, wfa: 0, overtime: 0, alpha: 0, total: 0 };
 
     dataToShow.forEach(row => {
         const d = new Date(row.date);
@@ -7974,12 +7974,24 @@ function renderRekapData(data, m, y) {
         let type = 'unknown';
 
         if (isHoliday) {
-            if (ket === 'wfo' || ket === 'wfa' || ket === 'overtime') {
+            if (ket === 'wfo') {
                 moodClass = 'mood-green';
                 icon = icons.energetic;
-                bubbleText = 'Working Hard!';
+                bubbleText = 'WFO Hard!';
                 type = 'work';
-                stats.work++;
+                stats.wfo++;
+            } else if (ket === 'wfa') {
+                moodClass = 'mood-yellow';
+                icon = icons.energetic;
+                bubbleText = 'WFA Chill!';
+                type = 'work';
+                stats.wfa++;
+            } else if (ket === 'overtime') {
+                moodClass = 'mood-orange';
+                icon = icons.energetic;
+                bubbleText = 'Overtime!';
+                type = 'work';
+                stats.overtime++;
             } else {
                 moodClass = 'mood-blue-bright';
                 icon = icons.happy;
@@ -7993,12 +8005,24 @@ function renderRekapData(data, m, y) {
             bubbleText = 'on leave zzz..';
             type = 'leave';
             stats.leave++;
-        } else if (ket === 'wfo' || ket === 'wfa' || ket === 'overtime') {
+        } else if (ket === 'wfo') {
             moodClass = 'mood-green';
             icon = icons.energetic;
-            bubbleText = 'Working Hard!';
+            bubbleText = 'WFO Hard!';
             type = 'work';
-            stats.work++;
+            stats.wfo++;
+        } else if (ket === 'wfa') {
+            moodClass = 'mood-yellow';
+            icon = icons.energetic;
+            bubbleText = 'WFA Chill!';
+            type = 'work';
+            stats.wfa++;
+        } else if (ket === 'overtime') {
+            moodClass = 'mood-orange';
+            icon = icons.energetic;
+            bubbleText = 'Overtime!';
+            type = 'work';
+            stats.overtime++;
         } else if (!isFuture && isWorkingDay && (!ket || ket === 'na')) {
             if (isToday) {
                 moodClass = 'mood-today-empty';
@@ -8066,7 +8090,9 @@ function renderRekapData(data, m, y) {
     // Update Stats DOM
     if (qs('#stat-happy-count')) qs('#stat-happy-count').textContent = stats.happy;
     if (qs('#stat-leave-count')) qs('#stat-leave-count').textContent = stats.leave;
-    if (qs('#stat-work-count')) qs('#stat-work-count').textContent = stats.work;
+    if (qs('#stat-wfo-count')) qs('#stat-wfo-count').textContent = stats.wfo;
+    if (qs('#stat-wfa-count')) qs('#stat-wfa-count').textContent = stats.wfa;
+    if (qs('#stat-overtime-count')) qs('#stat-overtime-count').textContent = stats.overtime;
     if (qs('#stat-alpha-count')) qs('#stat-alpha-count').textContent = stats.alpha;
     if (qs('#stat-total-count')) qs('#stat-total-count').textContent = stats.total + ' Hari';
 

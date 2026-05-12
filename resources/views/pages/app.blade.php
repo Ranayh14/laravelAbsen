@@ -4552,8 +4552,8 @@ function renderRekapData(data, m, y) {
             // Show actual keterangan if exists
             let badgeClass = 'badge-gray';
             if (row.ket === 'wfo') badgeClass = 'badge-green';
-            else if (row.ket === 'wfa') badgeClass = 'badge-blue';
-            else if (row.ket === 'overtime') badgeClass = 'badge-emerald';
+            else if (row.ket === 'wfa') badgeClass = 'badge-yellow';
+            else if (row.ket === 'overtime') badgeClass = 'badge-orange';
             else if (row.ket === 'izin') badgeClass = 'badge-yellow';
             else if (row.ket === 'sakit') badgeClass = 'badge-yellow';
             else if (row.ket === 'libur') badgeClass = 'badge-orange';

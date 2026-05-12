@@ -227,8 +227,10 @@
             /* Updated Mood Colors */
             .mood-blue-bright { background: #e0f2fe; color: #0ea5e9; } /* Ceria: Bright Blue */
             .mood-purple-dark { background: #f3e8ff; color: #6b21a8; } /* Tidur: Dark Purple */
-            .mood-green { background: #f0fdf4; color: #22c55e; } /* Semangat */
-            .mood-red { background: #fef2f2; color: #ef4444; } /* Bete */
+            .mood-green { background: #f0fdf4; color: #22c55e; } /* Semangat / WFO */
+            .mood-yellow { background: #fefce8; color: #eab308; } /* WFA */
+            .mood-orange { background: #fff7ed; color: #f97316; } /* Overtime */
+            .mood-red { background: #fef2f2; color: #ef4444; } /* Bete / Alpha */
             .mood-gray { background: #f1f5f9; color: #94a3b8; }
             .mood-today-empty { border: 2px dashed #cbd5e1; background: white; opacity: 0.8; }
 
@@ -356,10 +358,24 @@
                             </div>
                         </div>
                         <div class="stat-item">
-                            <div class="stat-icon mood-green"><i class="fi fi-sr-bolt"></i></div>
+                            <div class="stat-icon mood-green"><i class="fi fi-sr-building"></i></div>
                             <div class="stat-info">
-                                <p class="stat-label">Working Hard</p>
-                                <p id="stat-work-count" class="stat-value">0</p>
+                                <p class="stat-label">WFO</p>
+                                <p id="stat-wfo-count" class="stat-value">0</p>
+                            </div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-icon mood-yellow"><i class="fi fi-sr-home"></i></div>
+                            <div class="stat-info">
+                                <p class="stat-label">WFA</p>
+                                <p id="stat-wfa-count" class="stat-value">0</p>
+                            </div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-icon mood-orange"><i class="fi fi-sr-bolt"></i></div>
+                            <div class="stat-info">
+                                <p class="stat-label">Overtime</p>
+                                <p id="stat-overtime-count" class="stat-value">0</p>
                             </div>
                         </div>
                         <div class="stat-item">

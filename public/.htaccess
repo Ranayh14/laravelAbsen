@@ -23,3 +23,37 @@
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteRule ^ index.php [L]
 </IfModule>
+
+# Browser Caching for Assets
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresDefault "access plus 1 month"
+    
+    # Images
+    ExpiresByType image/x-icon "access plus 1 year"
+    ExpiresByType image/jpeg "access plus 1 year"
+    ExpiresByType image/png "access plus 1 year"
+    ExpiresByType image/gif "access plus 1 year"
+    
+    # Scripts and Styles
+    ExpiresByType text/css "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+    ExpiresByType application/x-javascript "access plus 1 month"
+    
+    # AI Models (Shards and Manifests)
+    ExpiresByType application/json "access plus 1 month"
+    ExpiresByType application/octet-stream "access plus 1 month"
+</IfModule>
+
+<IfModule mod_headers.c>
+    # Enable compression for text-based assets
+    <FilesMatch "\.(js|css|html|json)$">
+        Header set Cache-Control "public, max-age=2592000"
+    </FilesMatch>
+    
+    # Specific caching for AI models
+    <FilesMatch "\.(shard[0-9]+|json)$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+</IfModule>
+

@@ -35,9 +35,9 @@ let btnScanPulang = document.getElementById('btn-scan-pulang');
 
 // Configuration
 const detectionConfig = {
-    faceMatcherThreshold: 0.45,
-    recognitionThreshold: 0.45,
-    qualityThreshold: 0.20,
+    faceMatcherThreshold: 0.4,
+    recognitionThreshold: 0.4,
+    qualityThreshold: 0.25,
     scoreThreshold: 0.5,
     inputSize: 320,
     minFaceSize: 50,
@@ -208,7 +208,8 @@ async function loadLabeledFaceDescriptors() {
             }
         } else {
             // Standard: Load all members (Kiosk mode)
-            const res = await api('?ajax=get_members');
+            // OPTIMIZED: Use 'light' mode to skip large base64 photos if not needed
+            const res = await api('?ajax=get_members&light=1');
             members = res.data || [];
             membersToProcess = members;
         }
@@ -330,25 +331,27 @@ async function startScan(mode) {
 
     statusMessage('Menghubungkan kamera...', 'bg-blue-100 text-blue-700');
 
-    // PARALLEL: Start camera AND await pre-warm at the same time
-    // Camera is hardware, pre-warm is network/CPU — they don't block each other
+    statusMessage('Menginisialisasi sistem...', 'bg-blue-100 text-blue-700');
+
+    // PARALLEL: Start camera, load models, and fetch descriptors at the same time
     const preWarmPromise = window._preWarmReady || Promise.resolve();
     
-    const [cameraResult] = await Promise.allSettled([
+    await Promise.allSettled([
         startVideo(),
-        preWarmPromise
+        preWarmPromise,
+        (async () => {
+            if (!window.faceApiModelsLoaded) {
+                console.log('Loading Face API models...');
+                await loadFaceApiModels();
+            }
+        })(),
+        (async () => {
+            if (labeledFaceDescriptors.length === 0) {
+                console.log('Loading face descriptors...');
+                await loadLabeledFaceDescriptors();
+            }
+        })()
     ]);
-
-    // If pre-warm wasn't enough (e.g., first load, no pre-warm), load now
-    if (!window.faceApiModelsLoaded) {
-        statusMessage('Memuat model AI...', 'bg-blue-100 text-blue-700');
-        await loadFaceApiModels();
-    }
-
-    if (labeledFaceDescriptors.length === 0) {
-        statusMessage('Memuat data wajah...', 'bg-blue-100 text-blue-700');
-        await loadLabeledFaceDescriptors();
-    }
 
     // Build FaceMatcher ONCE — reused every detection frame
     if (labeledFaceDescriptors.length > 0 && !faceMatcher) {
@@ -805,16 +808,23 @@ function captureCompressedScreenshot() {
     if (!video || video.readyState < 2) return null;
     try {
         const canvas = document.createElement('canvas');
-        // Resolusi rendah untuk hemat bandwidth & storage
+        
+        // Maintain original video aspect ratio
+        const videoWidth = video.videoWidth || video.clientWidth || 640;
+        const videoHeight = video.videoHeight || video.clientHeight || 480;
+        const aspectRatio = videoWidth / videoHeight;
+        
+        // Target width 320, calculate height to maintain ratio
         canvas.width = 320;
-        canvas.height = 240;
+        canvas.height = 320 / aspectRatio;
+        
         const ctx = canvas.getContext('2d');
         
         // Draw video frame ke canvas
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         
-        // Kompresi kualitas 0.5 (50%)
-        return canvas.toDataURL('image/jpeg', 0.5);
+        // Kompresi kualitas 0.6 (60%) for better balance of size and clarity
+        return canvas.toDataURL('image/jpeg', 0.6);
     } catch (e) {
         console.warn('Capture error:', e);
         return null;

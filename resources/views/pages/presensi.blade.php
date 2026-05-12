@@ -142,7 +142,7 @@
                     <span class="text-xs font-bold text-indigo-600 uppercase tracking-widest">Bukti Foto</span>
                 </div>
                 <div class="relative rounded-xl overflow-hidden border-2 border-indigo-100 shadow-sm">
-                    <img id="confirm-screenshot-img" src="" class="w-full h-48 object-cover" alt="Screenshot Presensi">
+                    <img id="confirm-screenshot-img" src="" class="w-full max-h-[300px] object-contain" alt="Screenshot Presensi">
                     <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
                         <p class="text-white text-[10px] text-center">Foto terambil otomatis saat wajah terdeteksi</p>
                     </div>
