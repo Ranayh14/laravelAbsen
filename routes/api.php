@@ -22,6 +22,10 @@ use App\Http\Controllers\Api\ManualHolidayController;
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/register', [AuthController::class, 'register']);
 
+// Public FaceNet API (Accessible for Kiosk Mode/Landing Page)
+Route::post('/face/identify', [FaceNetController::class, 'identify']);
+Route::post('/face/verify', [FaceNetController::class, 'verify']);
+
 Route::middleware(['legacy.auth', 'require.auth'])->group(function () {
     // Auth & User Profile
     Route::get('/user', function (Request $request) {
@@ -35,9 +39,7 @@ Route::middleware(['legacy.auth', 'require.auth'])->group(function () {
     Route::get('/attendance/today', [AttendanceController::class, 'today']);
     Route::apiResource('attendance', AttendanceController::class)->except(['create', 'edit']);
 
-    // FaceNet API
-    Route::post('/face/verify', [FaceNetController::class, 'verify']);
-    Route::post('/face/identify', [FaceNetController::class, 'identify']);
+    // FaceNet Admin API
     Route::post('/face/register', [FaceNetController::class, 'registerFace']);
     Route::get('/face', [FaceNetController::class, 'index']);
     Route::get('/face/{id}', [FaceNetController::class, 'show']);

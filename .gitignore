@@ -24,3 +24,11 @@ yarn-error.log
 
 # Database Backups
 /resources/views/pages/database_backup/*.sql
+
+# AI Models & Cache
+/public/~
+/public/.cache
+*.pt
+*.onnx
+*.weights
+storage/app/torch_cache/

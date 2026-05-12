@@ -4,7 +4,7 @@ import numpy as np
 import cv2
 import logging
 import torch
-from facenet_pytorch import InceptionResnetV1, MTCNN, fixed_image_standardization
+from facenet_pytorch import InceptionResnetV1, MTCNN
 from PIL import Image
 from facenet_database import db
 
@@ -22,13 +22,12 @@ class FaceNetService:
         # Inisialisasi MTCNN untuk deteksi wajah
         self.mtcnn = MTCNN(image_size=160, margin=32, keep_all=False, device='cpu')
         
-        # Inisialisasi Resnet V1 (FaceNet architecture)
-        self.model = InceptionResnetV1(pretrained=None).eval()
-        
-        # Load weights
+        # Initialize Resnet V1 (FaceNet architecture)
+        # Fallback to 'vggface2' pretrained if local file is missing
         try:
             if os.path.exists(self.model_path):
                 logger.info(f"Loading weights from {self.model_path}")
+                self.model = InceptionResnetV1(pretrained=None).eval()
                 state_dict = torch.load(self.model_path, map_location='cpu')
                 
                 # Filter out classification layer if it exists (we only need embeddings)
@@ -38,11 +37,15 @@ class FaceNetService:
                         del state_dict[key]
                         
                 self.model.load_state_dict(state_dict, strict=False)
-                logger.info("Model weights loaded successfully.")
+                logger.info("Model weights loaded successfully from local file.")
             else:
-                logger.warning(f"Model file not found at {self.model_path}.")
+                logger.warning(f"Model file not found at {self.model_path}. Falling back to 'vggface2' pretrained weights.")
+                self.model = InceptionResnetV1(pretrained='vggface2').eval()
+                logger.info("Loaded built-in 'vggface2' weights successfully.")
         except Exception as e:
             logger.error(f"Error loading model weights: {str(e)}")
+            # Last resort fallback
+            self.model = InceptionResnetV1(pretrained='vggface2').eval()
 
     def generate_embedding(self, image_path):
         """Menghasilkan embedding (sidik jari wajah) dari gambar."""
@@ -58,10 +61,8 @@ class FaceNetService:
                 logger.warning(f"No face detected in {image_path}")
                 return None
             
-            # Standardize image (PENTING untuk akurasi Resnet V1)
-            face_tensor = fixed_image_standardization(face_tensor)
-            
-            # Tambahkan dimensi batch (1, 3, 160, 160)
+            # face_tensor is already normalized to [-1, 1] by MTCNN
+            # Do NOT apply fixed_image_standardization — it causes value collapse
             face_tensor = face_tensor.unsqueeze(0)
             
             # Generate embedding
@@ -78,6 +79,48 @@ class FaceNetService:
             logger.error(f"Error generating embedding: {str(e)}")
             return None
 
+    def verify_face(self, image_path, target_user_id, threshold=0.6):
+        """Verifikasi wajah 1-ke-1 khusus untuk target_user_id (Paling AMAN)."""
+        try:
+            target_user_id = int(target_user_id)
+            known_emb = db.get_user_embedding(target_user_id)
+            
+            if known_emb is None:
+                logger.warning(f"No embedding found for user {target_user_id}")
+                return {'error': 'User tidak memiliki data wajah terdaftar.'}
+
+            img = Image.open(image_path)
+            face_tensor = self.mtcnn(img)
+            
+            if face_tensor is None:
+                return {'error': 'Wajah tidak terdeteksi pada gambar.'}
+                
+            # face_tensor already normalized by MTCNN
+            with torch.no_grad():
+                embedding = self.model(face_tensor.unsqueeze(0))
+            embedding = torch.nn.functional.normalize(embedding, p=2, dim=1).squeeze().cpu().numpy()
+            
+            # Mirror check for better accuracy
+            face_tensor_mirrored = torch.flip(face_tensor, [2])
+            with torch.no_grad():
+                embedding_mirrored = self.model(face_tensor_mirrored.unsqueeze(0))
+            embedding_mirrored = torch.nn.functional.normalize(embedding_mirrored, p=2, dim=1).squeeze().cpu().numpy()
+
+            dist_orig = np.linalg.norm(embedding - known_emb)
+            dist_mirr = np.linalg.norm(embedding_mirrored - known_emb)
+            dist = min(dist_orig, dist_mirr)
+            
+            is_match = bool(dist <= threshold)
+            return {
+                'match': is_match,
+                'distance': float(dist),
+                'confidence': float(max(0, 1 - dist))
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in verify_face: {str(e)}")
+            return {'error': str(e)}
+
     def recognize_face(self, image_path, threshold=0.6):
         """Mencocokkan wajah dari gambar dengan database (termasuk cek mirroring)."""
         try:
@@ -88,17 +131,15 @@ class FaceNetService:
                 logger.warning(f"No face detected in {image_path}")
                 return None
                 
-            # Standardize and Generate embedding asli
-            face_tensor_std = fixed_image_standardization(face_tensor)
+            # face_tensor already normalized by MTCNN — no extra standardization needed
             with torch.no_grad():
-                embedding = self.model(face_tensor_std.unsqueeze(0))
+                embedding = self.model(face_tensor.unsqueeze(0))
             embedding = torch.nn.functional.normalize(embedding, p=2, dim=1).squeeze().cpu().numpy()
             
-            # Generate embedding mirrored (untuk jaga-japga selfie terbalik)
-            face_tensor_mirrored = torch.flip(face_tensor, [2]) # Flip horizontal (dimensi width)
-            face_tensor_mirrored_std = fixed_image_standardization(face_tensor_mirrored)
+            # Mirror embedding — flip face tensor horizontally
+            face_tensor_mirrored = torch.flip(face_tensor, [2])
             with torch.no_grad():
-                embedding_mirrored = self.model(face_tensor_mirrored_std.unsqueeze(0))
+                embedding_mirrored = self.model(face_tensor_mirrored.unsqueeze(0))
             embedding_mirrored = torch.nn.functional.normalize(embedding_mirrored, p=2, dim=1).squeeze().cpu().numpy()
 
             known_faces = db.get_all_embeddings()

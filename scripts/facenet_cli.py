@@ -94,6 +94,23 @@ def main():
                     'error': 'Failed to generate embedding'
                 }))
         
+        elif action == 'verify_face':
+            user_id = args.get('user_id')
+            if not user_id:
+                print(json.dumps({'success': False, 'error': 'User ID required for verification'}))
+                sys.exit(1)
+            result = service.verify_face(image, user_id, threshold)
+            if result and 'error' not in result:
+                print(json.dumps({
+                    'success': True,
+                    'data': result
+                }))
+            else:
+                print(json.dumps({
+                    'success': False,
+                    'error': result.get('error', 'Failed to verify face')
+                }))
+        
         elif action == 'recognize_face':
             result = service.recognize_face(image, threshold)
             if result and 'user_id' in result:

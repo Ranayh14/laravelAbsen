@@ -428,13 +428,14 @@ if (isset($_REQUEST['ajax'])) {
         $landmarks = $_POST['landmarks'] ?? null;
         
         if ($id > 0 && $embedding) {
-            $stmt = $pdo->prepare("UPDATE users SET face_embedding = :embedding, face_landmarks = :landmarks WHERE id = :id");
+            // Save specifically to face_embedding_128 for frontend use
+            $stmt = $pdo->prepare("UPDATE users SET face_embedding_128 = :embedding, face_landmarks = :landmarks WHERE id = :id");
             $res = $stmt->execute([
                 ':embedding' => $embedding,
                 ':landmarks' => $landmarks,
                 ':id'        => $id
             ]);
-            jsonResponse(['ok' => $res]);
+            jsonResponse(['ok' => $res, 'message' => 'Frontend 128-dim embedding updated.']);
         }
         jsonResponse(['ok' => false, 'message' => 'Invalid data'], 400);
     }
@@ -449,15 +450,45 @@ if (isset($_REQUEST['ajax'])) {
         } else {
             // Optimization: Only return photo if embedding is missing OR seems incompatible (e.g. 512-dim)
             // A 128-dim JSON array is usually < 3000 chars. 512-dim is much larger (> 7000 chars).
-            $fields .= ", (CASE WHEN face_embedding IS NULL OR face_embedding = '' OR CHAR_LENGTH(face_embedding) > 3000 THEN foto_base64 ELSE NULL END) as foto_base64";
+            // Optimization: Only return photo if 128-dim embedding is missing
+            $fields .= ", (CASE WHEN face_embedding_128 IS NULL OR face_embedding_128 = '' THEN foto_base64 ELSE NULL END) as foto_base64";
         }
         
         if (!$noEmbeddings) {
-            $fields .= ", face_embedding";
+            // Prefer the 128-dim embedding for frontend performance
+            $fields .= ", face_embedding_128 as face_embedding";
         }
         
         $stmt = $pdo->query("SELECT $fields FROM users WHERE role='pegawai'");
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Ensure foto_base64 is a valid URL or base64 data + Pre-crop for 20x speed
+        foreach ($rows as &$row) {
+            if (!empty($row['foto_base64']) && strpos($row['foto_base64'], 'data:') !== 0 && strpos($row['foto_base64'], 'http') !== 0) {
+                $filename = $row['foto_base64']; $photoPath = '';
+                $paths = [storage_path('app/public/users/'.$filename), public_path('storage/users/'.$filename)];
+                foreach ($paths as $p) { if (file_exists($p)) { $photoPath = $p; break; } }
+                if ($photoPath && file_exists($photoPath)) {
+                    try {
+                        $img = null; $ext = strtolower(pathinfo($photoPath, PATHINFO_EXTENSION));
+                        if ($ext == 'jpg' || $ext == 'jpeg') $img = @imagecreatefromjpeg($photoPath);
+                        elseif ($ext == 'png') $img = @imagecreatefrompng($photoPath);
+                        if ($img) {
+                            $w = imagesx($img); $h = imagesy($img); $size = min($w, $h);
+                            $crop = imagecreatetruecolor(160, 160);
+                            imagecopyresampled($crop, $img, 0, 0, ($w-$size)/2, ($h-$size)/2, 160, 160, $size, $size);
+                            ob_start(); imagejpeg($crop, null, 60);
+                            $row['foto_base64'] = 'data:image/jpeg;base64,' . base64_encode(ob_get_clean());
+                            imagedestroy($img); imagedestroy($crop);
+                        } else {
+                            $row['foto_base64'] = 'data:image/'.$ext.';base64,'.base64_encode(file_get_contents($photoPath));
+                        }
+                    } catch (\Exception $e) {}
+                }
+            }
+        }
+        jsonResponse(['ok' => true, 'data' => $rows]);
+        return; // Skip old loop
         
         // Ensure foto_base64 is a valid URL or base64 data
         foreach ($rows as &$row) {

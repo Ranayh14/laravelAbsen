@@ -196,118 +196,87 @@ async function loadLabeledFaceDescriptors() {
     
     try {
         const startTime = performance.now();
-        console.log(`Starting descriptor load (Mode: ${isLateReq ? 'Limited' : 'Full'})...`);
-        
         let membersToProcess = [];
+        const currentUserId = window.currentUserId || (typeof _currentUser !== 'undefined' ? _currentUser.id : null);
         
         if (isLateReq) {
-            // Optimized: Only load current user for late requests
             const res = await api('?ajax=get_current_user_descriptor', {}, { cache: true });
             if (res.ok && res.data) {
                 membersToProcess = [res.data];
                 members = [res.data];
             }
         } else {
-            // Standard: Load all members (Kiosk mode)
-            // OPTIMIZED: Use 'light' mode to skip large base64 photos if not needed
             const res = await api('?ajax=get_members&light=1');
             members = res.data || [];
-            membersToProcess = members;
-        }
-
-        if (membersToProcess.length === 0) return;
-
-        // Try load from IndexedDB if available
-        if (typeof idbGetDescriptors === 'function' && typeof computeMembersVersionKey === 'function') {
-            const versionKey = await computeMembersVersionKey(membersToProcess);
-            const cached = await idbGetDescriptors(versionKey);
-            if (cached && Array.isArray(cached) && cached.length > 0) {
-                labeledFaceDescriptors = cached.map(item => new faceapi.LabeledFaceDescriptors(
-                    item.label,
-                    item.descriptors.map(d => new Float32Array(d))
-                ));
-                console.log(`Loaded ${labeledFaceDescriptors.length} face descriptors from IDB cache in ${(performance.now() - startTime).toFixed(2)}ms`);
-                return;
+            
+            // PRIORITY: Sort currently logged-in user to the front of the list
+            if (currentUserId) {
+                members.sort((a, b) => {
+                    const idA = a.id || a[0];
+                    const idB = b.id || b[0];
+                    if (idA == currentUserId) return -1;
+                    if (idB == currentUserId) return 1;
+                    return 0;
+                });
             }
-        }
+            membersToProcess = members;
+        }        if (membersToProcess.length === 0) return;
 
-        labeledFaceDescriptors = [];
-        const perfLevel = detectDevicePerformance();
-        const batchSize = isLateReq ? 1 : (perfLevel === 'low' ? 3 : 10);
+        // CRITICAL: Aggressive Parallel Loading (< 5s for 17 members)
+        statusMessage('Mengoptimalkan sistem (Hanya sekali)...', 'bg-blue-100 text-blue-700');
         
-        for (let i = 0; i < membersToProcess.length; i += batchSize) {
-            const batch = membersToProcess.slice(i, i + batchSize);
-            const promises = batch.map(async m => {
-                try {
-                    // Handle both object and indexed array formats for robustness
-                    const label = String(m.nim || m[3] || m.nama || m[4] || m.id || m[0]);
-                    const embedding = m.face_embedding || m[8];
-                    const foto = m.foto_base64 || m[7];
-                    const name = m.nama || m[4] || 'User';
+        const promises = membersToProcess.map(async m => {
+            try {
+                const label = String(m.nim || m[3] || m.nama || m[4] || m.id || m[0]);
+                const embedding = m.face_embedding || m[8];
+                const foto = m.foto_base64 || m[7];
 
-                    // OPTIMIZED: Use pre-computed embedding from server ONLY if dimension matches (128)
-                    if (embedding) {
-                        try {
-                            const parsed = JSON.parse(embedding);
-                            if (Array.isArray(parsed) && parsed.length === 128) {
-                                const desc = new Float32Array(parsed);
-                                return new faceapi.LabeledFaceDescriptors(label, [desc]);
-                            } else {
-                                console.log(`Skipping ${name}'s embedding (Dim mismatch: ${parsed.length}), falling back to photo...`);
-                            }
-                        } catch (e) { console.error('Error parsing embedding for', name); }
-                    }
-                    
-                    if (!foto) return null;
-                    if (loadingOverlay) loadingOverlay.querySelector('#loading-progress').textContent = `Menghitung vektor wajah: ${name}...`;
-                    const img = await faceapi.fetchImage(foto);
-                    const det = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.3 }))
-                        .withFaceLandmarks().withFaceDescriptor();
-                    if (det) {
-                        try {
-                            // Auto-save the computed embedding to the database so future loads are instant
-                            const userId = m.id || m[0];
-                            if (userId) {
-                                const formData = new FormData();
-                                formData.append('ajax', 'save_face_embedding');
-                                formData.append('id', userId);
-                                formData.append('embedding', JSON.stringify(Array.from(det.descriptor)));
-                                formData.append('landmarks', JSON.stringify(det.landmarks.positions));
-                                if (typeof api === 'function') {
-                                    api('index.php?ajax=save_face_embedding', formData)
-                                        .then(res => console.log(`✅ Saved 128-dim embedding for ${name}`))
-                                        .catch(e => console.warn('Silently failed to save embedding'));
-                                } else {
-                                    fetch('index.php?ajax=save_face_embedding', { method: 'POST', body: formData })
-                                        .then(res => console.log(`✅ Saved 128-dim embedding for ${name}`))
-                                        .catch(e => console.warn('Silently failed to save embedding'));
-                                }
-                            }
-                        } catch (err) {}
-                        
-                        return new faceapi.LabeledFaceDescriptors(label, [det.descriptor]);
-                    }
-                } catch (e) { console.warn('Failed to load face data', e); }
-                return null;
-            });
-            const results = await Promise.all(promises);
-            labeledFaceDescriptors.push(...results.filter(r => r !== null));
-            if (i + batchSize < membersToProcess.length) await new Promise(r => setTimeout(r, 20));
+                // 1. If already in DB, load instantly
+                if (embedding) {
+                    try {
+                        const parsed = JSON.parse(embedding);
+                        if (Array.isArray(parsed) && parsed.length === 128) {
+                            return new faceapi.LabeledFaceDescriptors(label, [new Float32Array(parsed)]);
+                        }
+                    } catch (e) {}
+                }
+                
+                // 2. If missing, compute ONCE and SAVE to DB
+                if (!foto) return null;
+                const img = await faceapi.fetchImage(foto);
+                const det = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 128, scoreThreshold: 0.5 }))
+                    .withFaceLandmarks().withFaceDescriptor();
+                
+                if (det) {
+                    const formData = new FormData();
+                    formData.append('ajax', 'save_face_embedding');
+                    formData.append('id', m.id || m[0]);
+                    formData.append('embedding', JSON.stringify(Array.from(det.descriptor)));
+                    api('index.php?ajax=save_face_embedding', formData);
+                    return new faceapi.LabeledFaceDescriptors(label, [det.descriptor]);
+                }
+            } catch (e) { console.warn('Fast compute fail', e); }
+            return null;
+        });
+
+        const results = await Promise.all(promises);
+        labeledFaceDescriptors = results.filter(r => r !== null);
+               if (labeledFaceDescriptors.length > 0) {
+            faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.5);
         }
-
-        // Save to cache
+        
+        // Cache in IDB for even faster local reloads
         if (typeof idbSetDescriptors === 'function' && typeof computeMembersVersionKey === 'function') {
             const versionKey = await computeMembersVersionKey(membersToProcess);
             const toStore = labeledFaceDescriptors.map(ld => ({
                 label: ld.label,
                 descriptors: ld.descriptors.map(arr => Array.from(arr))
             }));
-            await idbSetDescriptors(versionKey, toStore);
+            idbSetDescriptors(versionKey, toStore);
         }
-        
-        console.log(`Loaded ${labeledFaceDescriptors.length} face descriptors in ${(performance.now() - startTime).toFixed(2)}ms`);
+        console.log(`Loaded ${labeledFaceDescriptors.length} descriptors in ${(performance.now() - startTime).toFixed(2)}ms`);
     } catch (e) {
-        console.error('Failed to load descriptors', e);
+        console.error('Descriptor load failed:', e);
     }
 }
 
@@ -361,20 +330,12 @@ async function startScan(mode) {
         })()
     ]);
 
-    // SEQUENTIAL: Only load descriptors AFTER models are ready (essential for fallback computation)
+    // BLOCKING LOAD: Ensure system is REALLY ready before showing "Sistem Siap"
     if (labeledFaceDescriptors.length === 0) {
-        console.log('🧬 Loading face descriptors...');
+        statusMessage('Menganalisis sistem wajah...', 'bg-blue-100 text-blue-700');
         await loadLabeledFaceDescriptors();
-    }
-
-    // Build FaceMatcher ONCE — reused every detection frame
-    if (labeledFaceDescriptors.length > 0 && !faceMatcher) {
-        try {
-            faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, getAdjustedFaceMatcherThreshold());
-            console.log('✅ FaceMatcher ready with', labeledFaceDescriptors.length, 'descriptors');
-        } catch(e) {
-            console.error('Failed to build FaceMatcher:', e);
-        }
+    } else if (!faceMatcher) {
+        faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.5);
     }
 
     statusMessage('Sistem siap! Arahkan wajah ke kamera.', 'bg-green-100 text-green-700');
@@ -453,6 +414,8 @@ function resetPresensiPage() {
 }
 
 let _detectionRunning = false; // Prevent concurrent async detection calls
+let lastRecognitionLabel = 'Posisikan wajah...';
+let lastRecognitionColor = '#3b82f6';
 
 function startVideoInterval() {
     if (!isCameraActive || videoInterval || !video) return;
@@ -497,47 +460,46 @@ function startVideoInterval() {
                 if (detection) {
                     // Simpan deteksi terakhir untuk ekstraksi landmark saat presensi
                     window.lastDetectionForLandmark = detection;
-
                     const resized = faceapi.resizeResults(detection, displaySize);
                     const box = resized.detection.box;
                     const mirroredX = displaySize.width - box.x - box.width;
 
-                    let labelText = 'Posisikan wajah...';
-                    let boxColor = '#3b82f6'; // blue while searching
-
-                    // Use pre-built faceMatcher — no need to rebuild every frame!
-                    if (faceMatcher) {
+                    // INSTANT LOCAL IDENTIFICATION
+                    if (faceMatcher && !isDetectionPaused) {
                         const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
-
-                        if (bestMatch.label === 'unknown') {
-                            labelText = 'Wajah tidak dikenal';
-                            boxColor = '#ef4444'; // red
-                        } else {
-                            const searchLabel = String(bestMatch.label);
-                            const member = members.find(m => {
-                                return String(m.nim || '') === searchLabel ||
-                                       String(m.nama || '') === searchLabel ||
-                                       String(m.id || '') === searchLabel;
+                        
+                        if (bestMatch.label !== 'unknown' && bestMatch.distance < 0.5) {
+                            const matchedMember = members.find(m => {
+                                return String(m.nim || '') === String(bestMatch.label) ||
+                                       String(m.nama || '') === String(bestMatch.label) ||
+                                       String(m.id || '') === String(bestMatch.label);
                             });
-                            const memberName = member ? (member.nama || '') : bestMatch.label;
-                            labelText = `${memberName} (${bestMatch.distance.toFixed(2)})`;
-                            boxColor = '#22c55e'; // green
-                            handleRecognition(bestMatch.label, 'neutral');
+                            
+                            lastRecognitionLabel = (matchedMember ? matchedMember.nama : bestMatch.label) + ` (${Math.round((1 - bestMatch.distance) * 100)}%)`;
+                            lastRecognitionColor = '#22c55e'; // Green
+                            handleRecognition(matchedMember ? (matchedMember.id || matchedMember[0]) : bestMatch.label, 'neutral');
+                        } else {
+                            lastRecognitionLabel = 'Wajah tidak dikenal';
+                            lastRecognitionColor = '#ef4444'; // Red
                         }
+                    } else if (!faceMatcher) {
+                        lastRecognitionLabel = 'Menunggu data...';
                     }
 
-                    // Draw box
-                    ctx.strokeStyle = boxColor;
+                    // DRAWING SECTION
+                    ctx.strokeStyle = lastRecognitionColor;
                     ctx.lineWidth = 3;
                     ctx.strokeRect(mirroredX, box.y, box.width, box.height);
 
-                    // Label
                     ctx.font = 'bold 14px Inter, sans-serif';
-                    const textWidth = ctx.measureText(labelText).width;
-                    ctx.fillStyle = boxColor;
+                    const textWidth = ctx.measureText(lastRecognitionLabel).width;
+                    ctx.fillStyle = lastRecognitionColor;
                     ctx.fillRect(mirroredX, box.y - 26, textWidth + 10, 26);
                     ctx.fillStyle = 'white';
-                    ctx.fillText(labelText, mirroredX + 5, box.y - 7);
+                    ctx.fillText(lastRecognitionLabel, mirroredX + 5, box.y - 7);
+                } else {
+                    lastRecognitionLabel = 'Posisikan wajah...';
+                    lastRecognitionColor = '#3b82f6';
                 }
             } catch (e) {
                 if (!e.message?.includes('disposed')) console.error('Detection error:', e);
@@ -1540,3 +1502,55 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => startScan('pulang'), 500);
     }
 });
+
+async function loadLabeledFaceDescriptorsBackground(membersToProcess) {
+    console.log('🧬 Background loading face descriptors started...');
+    try {
+        labeledFaceDescriptors = [];
+        const perfLevel = detectDevicePerformance();
+        const batchSize = perfLevel === 'low' ? 3 : 10;
+        
+        for (let i = 0; i < membersToProcess.length; i += batchSize) {
+            const batch = membersToProcess.slice(i, i + batchSize);
+            const promises = batch.map(async m => {
+                try {
+                    const label = String(m.nim || m[3] || m.nama || m[4] || m.id || m[0]);
+                    const embedding = m.face_embedding || m[8];
+                    const foto = m.foto_base64 || m[7];
+
+                    // Priority: Use pre-computed 128-dim embedding if available (Instant)
+                    if (embedding) {
+                        try {
+                            const parsed = JSON.parse(embedding);
+                            if (Array.isArray(parsed) && parsed.length === 128) {
+                                const desc = new Float32Array(parsed);
+                                return new faceapi.LabeledFaceDescriptors(label, [desc]);
+                            }
+                        } catch (e) {}
+                    }
+                    
+                    // Fallback: Compute from photo (Slow)
+                    if (!foto) return null;
+                    const img = await faceapi.fetchImage(foto);
+                    const det = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 }))
+                        .withFaceLandmarks().withFaceDescriptor();
+                    
+                    if (det) return new faceapi.LabeledFaceDescriptors(label, [det.descriptor]);
+                } catch (e) { console.warn('Background load fail', e); }
+                return null;
+            });
+            const results = await Promise.all(promises);
+            labeledFaceDescriptors.push(...results.filter(r => r !== null));
+            
+            // Re-build matcher incrementally
+            if (labeledFaceDescriptors.length > 0) {
+                faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.5);
+            }
+            
+            await new Promise(r => setTimeout(r, 100)); // Minimal delay to keep UI smooth
+        }
+        console.log('✅ Background descriptor loading complete.');
+    } catch (e) {
+        console.error('Background descriptor loading failed', e);
+    }
+}

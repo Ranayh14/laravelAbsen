@@ -123,9 +123,9 @@ class FaceNetController extends Controller
                 return response()->json(['ok' => false, 'message' => 'Pengguna ini belum mendaftarkan wajah.'], 400);
             }
 
-            // Simpan gambar sementara (Optimized 300px)
+            // Simpan gambar sementara (Optimized 640px)
             $imageName = 'temp_verify_' . time() . '.jpg';
-            $savedFilename = $this->optimizeAndSaveBase64($request->image, 'temp', $imageName, 300, 70);
+            $savedFilename = $this->optimizeAndSaveBase64($request->image, 'temp', $imageName, 640, 80);
             
             if (!$savedFilename) {
                 return response()->json(['ok' => false, 'message' => 'Gagal memproses gambar.'], 500);
@@ -139,8 +139,9 @@ class FaceNetController extends Controller
             
             $cmdPython = file_exists($pythonPath) ? $pythonPath : 'python';
             $jsonArgs = json_encode([
-                'action' => 'recognize_face',
+                'action' => 'verify_face',
                 'image' => $imagePath,
+                'user_id' => $user->id,
                 'threshold' => 0.5
             ]);
 
@@ -175,15 +176,15 @@ class FaceNetController extends Controller
 
             if ($output['success']) {
                 $matchData = $output['data'];
-                $isMatch = (int)$matchData['user_id'] === (int)$request->user_id;
+                $isMatch = $matchData['match'] ?? false;
 
                 return response()->json([
-                    'ok' => true,
+                    'ok' => $isMatch,
                     'match' => $isMatch,
                     'confidence' => $matchData['confidence'] ?? 0,
                     'distance' => $matchData['distance'] ?? 0,
-                    'message' => $isMatch ? 'Verifikasi wajah berhasil.' : 'Wajah tidak cocok dengan ID yang diminta.'
-                ]);
+                    'message' => $isMatch ? 'Verifikasi wajah berhasil.' : 'Wajah tidak cocok dengan data pengguna ini.'
+                ], $isMatch ? 200 : 400);
             }
             
             return response()->json([
@@ -218,9 +219,9 @@ class FaceNetController extends Controller
                 ], 400);
             }
             
-            // Simpan gambar sementara (Optimized 300px)
+            // Simpan gambar sementara (Optimized 640px)
             $imageName = 'temp_id_' . time() . '.jpg';
-            $savedFilename = $this->optimizeAndSaveBase64($request->image, 'temp', $imageName, 300, 70);
+            $savedFilename = $this->optimizeAndSaveBase64($request->image, 'temp', $imageName, 640, 80);
             
             if (!$savedFilename) {
                 return response()->json(['ok' => false, 'message' => 'Gagal memproses gambar.'], 500);
@@ -240,7 +241,7 @@ class FaceNetController extends Controller
             $jsonArgs = json_encode([
                 'action' => 'recognize_face',
                 'image' => $imagePath,
-                'threshold' => 0.5
+                'threshold' => 0.6
             ]);
 
             $process = new Process([$cmdPython, $facenetCli, $jsonArgs]);

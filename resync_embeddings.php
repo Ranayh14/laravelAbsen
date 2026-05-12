@@ -1,68 +1,66 @@
 <?php
-define('LARAVEL_START', microtime(true));
-require __DIR__ . '/vendor/autoload.php';
-$app = require_once __DIR__ . '/bootstrap/app.php';
-$kernel = $app->make(Illuminate\Contracts\Http\Kernel::class);
-$kernel->handle(Illuminate\Http\Request::capture());
-set_time_limit(0);
+/**
+ * Face Embedding Resync Script
+ * This script regenerates all 512-dim face embeddings using the current Python backend.
+ * This ensures that the database is perfectly synced with the FaceNet PyTorch model.
+ */
+
+require 'vendor/autoload.php';
+$app = require_once 'bootstrap/app.php';
+$kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+$kernel->bootstrap();
 
 use App\Models\User;
 use Symfony\Component\Process\Process;
 
 $users = User::whereNotNull('foto_base64')->get();
+$count = count($users);
+echo "Found $count users with profile photos. Starting resync...\n";
 
-echo "Memulai re-sync untuk " . count($users) . " user...\n";
-
-$facenetCli = base_path('scripts/facenet_cli.py');
 $pythonPath = 'C:\\Python313\\python.exe';
-$sitePackages = 'C:\\Python313\\Lib\\site-packages';
 $cmdPython = file_exists($pythonPath) ? $pythonPath : 'python';
+$facenetCli = base_path('scripts/facenet_cli.py');
+$sitePackages = 'C:\\Python313\\Lib\\site-packages';
 
-foreach ($users as $user) {
-    echo "Processing " . $user->nama . "... ";
+foreach ($users as $index => $user) {
+    $num = $index + 1;
+    echo "[$num/$count] Processing {$user->nama}... ";
     
     $imagePath = storage_path('app/public/users/' . $user->foto_base64);
-    
     if (!file_exists($imagePath)) {
-        echo "FAILED: File foto tidak ditemukan di $imagePath\n";
+        echo "Error: File not found at $imagePath\n";
         continue;
     }
-
+    
     $jsonArgs = json_encode([
         'action' => 'generate_embedding',
         'image' => $imagePath
     ]);
-
+    
     $process = new Process([$cmdPython, $facenetCli, $jsonArgs]);
     $process->setEnv([
         'PYTHONPATH' => $sitePackages . ';C:\\Users\\Rana\\AppData\\Roaming\\Python\\Python313\\site-packages;' . base_path('scripts') . ';' . base_path('scripts/facenet-master/src'),
         'PATH' => 'C:\\Python313\\;' . getenv('PATH'),
-        'USERNAME' => 'Rana',
-        'USER' => 'Rana',
         'SystemRoot' => 'C:\\Windows'
     ]);
-
-    try {
-        $process->run();
-        
-        if (!$process->isSuccessful()) {
-            echo "FAILED: Python error: " . $process->getErrorOutput() . "\n";
-            continue;
-        }
-
-        $output = json_decode($process->getOutput(), true);
-        
-        if (isset($output['success']) && $output['success'] && isset($output['data']['embedding'])) {
-            $user->face_embedding = json_encode($output['data']['embedding']);
-            $user->face_embedding_updated = now();
-            $user->save();
-            echo "SUCCESS (Normalized)\n";
-        } else {
-            echo "FAILED: No embedding generated.\n";
-        }
-    } catch (\Exception $e) {
-        echo "ERROR: " . $e->getMessage() . "\n";
+    
+    $process->run();
+    
+    if (!$process->isSuccessful()) {
+        echo "Error: Python process failed. " . $process->getErrorOutput() . "\n";
+        continue;
+    }
+    
+    $output = json_decode($process->getOutput(), true);
+    if (isset($output['success']) && $output['success']) {
+        $embedding = $output['data']['embedding'];
+        $user->face_embedding = json_encode($embedding);
+        $user->face_embedding_updated = now();
+        $user->save();
+        echo "Success (Dim: " . count($embedding) . ")\n";
+    } else {
+        echo "Error: " . ($output['error'] ?? 'Unknown error') . "\n";
     }
 }
 
-echo "Semua proses selesai!\n";
+echo "Resync complete!\n";
