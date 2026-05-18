@@ -254,18 +254,22 @@
                     <div>
                         <label class="block text-xs text-gray-600 mb-1 font-medium">Threshold Recognition</label>
                         <input type="number" id="face-recognition-threshold" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 text-sm" value="0.58" step="0.01" min="0" max="1">
+                        <p class="text-[10px] text-gray-500 mt-1">Batas kemiripan wajah (Makin kecil = makin ketat/sulit dikenali). Standar: 0.40 - 0.50.</p>
                     </div>
                     <div>
                         <label class="block text-xs text-gray-600 mb-1 font-medium">Ukuran Input</label>
                         <input type="number" id="face-recognition-input-size" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 text-sm" value="416">
+                        <p class="text-[10px] text-gray-500 mt-1">Ukuran skala deteksi. (Contoh: 320, 416). Makin besar = jarak wajah bisa lebih jauh.</p>
                     </div>
                     <div>
                         <label class="block text-xs text-gray-600 mb-1 font-medium">Score Threshold</label>
                         <input type="number" id="face-recognition-score-threshold" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 text-sm" value="0.35" step="0.01" min="0" max="1">
+                        <p class="text-[10px] text-gray-500 mt-1">Skor keyakinan AI adanya wajah di kamera. Standar: 0.30 - 0.50.</p>
                     </div>
                     <div>
                         <label class="block text-xs text-gray-600 mb-1 font-medium">Quality Threshold</label>
                         <input type="number" id="face-recognition-quality-threshold" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 text-sm" value="0.65" step="0.01" min="0" max="1">
+                        <p class="text-[10px] text-gray-500 mt-1">Kualitas posisi & cahaya. (Makin besar = harus terang dan di tengah). Standar: 0.20.</p>
                     </div>
                 </div>
             </div>
@@ -295,6 +299,34 @@
                         <label class="block text-xs text-gray-600 mb-1 font-medium">Radius Akurasi GPS (meter)</label>
                         <input type="number" id="geocode-accuracy-radius" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 text-sm" value="50">
                     </div>
+                </div>
+            </div>
+        </details>
+
+        <!-- Pengaturan Help Center -->
+        <details class="settings-accordion bg-white rounded-2xl sm:rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+            <summary class="p-4 sm:p-6 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-sky-100 flex items-center justify-center">
+                        <i class="fi fi-sr-headset text-sky-600 text-lg"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base sm:text-lg font-bold text-gray-800">Admin Help Center & WA</h3>
+                        <p class="text-xs sm:text-sm text-gray-500">Nomor dan pesan WhatsApp Bantuan</p>
+                    </div>
+                </div>
+                <i class="fi fi-sr-angle-down accordion-icon text-gray-400 transition-transform duration-300"></i>
+            </summary>
+            <div class="accordion-content px-4 sm:px-6 pb-4 sm:pb-6 border-t border-gray-100 pt-4 space-y-4">
+                <div>
+                    <label class="block text-xs text-gray-600 mb-1 font-medium">Nomor WhatsApp Admin</label>
+                    <input type="text" id="help-wa-number" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-sky-500 text-sm font-mono" placeholder="Contoh: 6287890004465">
+                    <p class="text-xs text-gray-500 mt-1">Gunakan kode negara (62 untuk Indonesia) tanpa tanda + atau angka 0 di depan.</p>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-600 mb-1 font-medium">Pesan Default WhatsApp</label>
+                    <textarea id="help-wa-message" rows="2" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-sky-500 text-sm" placeholder="Contoh: Hai Admin, Saya ingin meminta bantuan terkait ...."></textarea>
+                    <p class="text-xs text-gray-500 mt-1">Teks awal otomatis yang muncul saat pegawai membuka chat WA admin.</p>
                 </div>
             </div>
         </details>
@@ -460,6 +492,9 @@ async function handleSaveSettings(btn) {
         data.append('geocode_timeout', getValue('geocode-timeout'));
         data.append('geocode_accuracy_radius', getValue('geocode-accuracy-radius'));
         
+        data.append('help_wa_number', getValue('help-wa-number'));
+        data.append('help_wa_message', getValue('help-wa-message'));
+        
         // WFO API settings
         data.append('wfo_mode', getValue('wfo-mode'));
         data.append('wfo_api_provider', getValue('wfo-api-provider'));
@@ -477,7 +512,7 @@ async function handleSaveSettings(btn) {
         }
 
         const json = await api('settings', data, {
-            method: 'POST'
+            method: 'PUT'
         });
         
         if (json.ok) {

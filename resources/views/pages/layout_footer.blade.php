@@ -9341,6 +9341,9 @@ async function renderSettings() {
             if(qs('#geocode-timeout')) qs('#geocode-timeout').value = settings.geocode_timeout?.value || '3';
             if(qs('#geocode-accuracy-radius')) qs('#geocode-accuracy-radius').value = settings.geocode_accuracy_radius?.value || '50';
             
+            if(qs('#help-wa-number')) qs('#help-wa-number').value = settings.help_wa_number?.value || '6287890004465';
+            if(qs('#help-wa-message')) qs('#help-wa-message').value = settings.help_wa_message?.value || 'Hai Admin, Saya ingin meminta bantuan terkait ....';
+            
             // WFO API settings
             if(qs('#wfo-mode')) qs('#wfo-mode').value = settings.wfo_mode?.value || 'api';
             if(qs('#wfo-api-provider')) qs('#wfo-api-provider').value = settings.wfo_api_provider?.value || 'ipinfo';
@@ -9563,6 +9566,8 @@ async function selectAddress(item) {
 qs('#reset-settings') && qs('#reset-settings').addEventListener('click', () => {
     qs('#max-ontime-hour').value = '8';
     qs('#min-checkout-hour').value = '17';
+    if(qs('#help-wa-number')) qs('#help-wa-number').value = '6287890004465';
+    if(qs('#help-wa-message')) qs('#help-wa-message').value = 'Hai Admin, Saya ingin meminta bantuan terkait ....';
     if(qs('#kpi-late-penalty')) qs('#kpi-late-penalty').value = '1';
     if(qs('#kpi-izin-sakit')) qs('#kpi-izin-sakit').value = '85';
     if(qs('#kpi-alpha')) qs('#kpi-alpha').value = '0';

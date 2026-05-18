@@ -124,7 +124,7 @@ class FaceNetDatabase:
             query = """
                 SELECT id, nim, nama, face_embedding 
                 FROM users 
-                WHERE role = 'pegawai' AND face_embedding IS NOT NULL
+                WHERE face_embedding IS NOT NULL
             """
             cursor.execute(query)
             results = cursor.fetchall()
@@ -162,7 +162,7 @@ class FaceNetDatabase:
             query = """
                 SELECT nim, face_embedding 
                 FROM users 
-                WHERE role = 'pegawai' AND face_embedding IS NOT NULL AND nim IS NOT NULL
+                WHERE face_embedding IS NOT NULL AND nim IS NOT NULL
             """
             cursor.execute(query)
             results = cursor.fetchall()

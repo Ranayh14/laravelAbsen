@@ -12,7 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('admin_help_requests', function (Blueprint $table) {
-            //
+            if (!Schema::hasColumn('admin_help_requests', 'keterangan')) {
+                $table->text('keterangan')->nullable()->after('bug_proof');
+            }
         });
     }
 
@@ -22,7 +24,9 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('admin_help_requests', function (Blueprint $table) {
-            //
+            if (Schema::hasColumn('admin_help_requests', 'keterangan')) {
+                $table->dropColumn('keterangan');
+            }
         });
     }
 };

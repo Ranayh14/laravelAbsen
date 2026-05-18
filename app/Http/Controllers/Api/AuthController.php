@@ -7,10 +7,13 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use App\Models\User;
 use Illuminate\Support\Facades\Validator;
+use App\Traits\ImageOptimizer;
+use Symfony\Component\Process\Process;
 use Exception;
 
 class AuthController extends Controller
 {
+    use ImageOptimizer;
     public function login(Request $request)
     {
         // 1. Validasi Input
@@ -72,6 +75,8 @@ class AuthController extends Controller
             'nim'      => 'required|unique:users,nim',
             'nama'     => 'required|string|max:255',
             'password' => 'required|min:6',
+            'foto_base64' => 'required|string', // Wajib sertakan foto saat daftar
+            'face_landmarks' => 'nullable|string',
         ], [
             'email.required' => 'Email wajib diisi.',
             'email.email' => 'Format email tidak valid.',
@@ -81,6 +86,7 @@ class AuthController extends Controller
             'nama.required' => 'Nama wajib diisi.',
             'password.required' => 'Password wajib diisi.',
             'password.min' => 'Password minimal 6 karakter.',
+            'foto_base64.required' => 'Foto wajah wajib disertakan untuk pendaftaran.',
         ]);
 
         if ($validator->fails()) {
@@ -98,13 +104,52 @@ class AuthController extends Controller
                 'nim' => $request->nim,
                 'nama' => $request->nama,
                 'password' => Hash::make($request->password),
+                'face_landmarks' => $request->face_landmarks,
             ]);
+
+            // ---- PROSES REGISTRASI WAJAH (INSTAN) ----
+            $imageName = 'face_' . $user->id . '_' . time() . '.jpg';
+            $savedFilename = $this->optimizeAndSaveBase64($request->foto_base64, 'users', $imageName, 300, 70);
+            
+            if ($savedFilename) {
+                $user->foto_base64 = $savedFilename;
+                $user->save();
+
+                // Generate Embedding menggunakan Python
+                $facenetCli = base_path('scripts/facenet_cli.py');
+                $imagePath  = storage_path('app/public/users/' . $savedFilename);
+                $pythonPath = 'C:\\Python313\\python.exe';
+                $cmdPython  = file_exists($pythonPath) ? $pythonPath : 'python';
+
+                $jsonArgs = json_encode(['action' => 'generate_embedding', 'image' => $imagePath]);
+                $process  = new Process([$cmdPython, $facenetCli, $jsonArgs]);
+                
+                // Set Environment (Samakan dengan FaceNetController)
+                $process->setEnv([
+                    'PYTHONPATH' => 'C:\\Python313\\Lib\\site-packages;C:\\Users\\Rana\\AppData\\Roaming\\Python\\Python313\\site-packages;' . base_path('scripts'),
+                    'PATH' => 'C:\\Python313\\;' . getenv('PATH'),
+                    'SystemRoot' => 'C:\\Windows',
+                    'USERNAME' => 'Rana',
+                    'USER' => 'Rana'
+                ]);
+
+                $process->run();
+
+                if ($process->isSuccessful()) {
+                    $output = json_decode($process->getOutput(), true);
+                    if (isset($output['success']) && $output['success']) {
+                        $user->face_embedding = json_encode($output['data']['embedding']);
+                        $user->face_embedding_updated = now();
+                        $user->save();
+                    }
+                }
+            }
 
             $token = $user->createToken('auth_token')->plainTextToken;
 
             return response()->json([
                 'ok' => true,
-                'message' => 'Registrasi berhasil',
+                'message' => 'Registrasi berhasil (Akun & Wajah terdaftar)',
                 'role' => $user->role,
                 'token' => $token,
                 'user' => $user

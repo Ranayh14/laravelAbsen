@@ -12,7 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('admin_help_requests', function (Blueprint $table) {
-            //
+            if (!Schema::hasColumn('admin_help_requests', 'jam_pulang')) {
+                $table->time('jam_pulang')->nullable()->after('jam_masuk');
+            }
         });
     }
 
@@ -22,7 +24,9 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('admin_help_requests', function (Blueprint $table) {
-            //
+            if (Schema::hasColumn('admin_help_requests', 'jam_pulang')) {
+                $table->dropColumn('jam_pulang');
+            }
         });
     }
 };

@@ -241,7 +241,7 @@ class FaceNetController extends Controller
             $jsonArgs = json_encode([
                 'action' => 'recognize_face',
                 'image' => $imagePath,
-                'threshold' => 0.6
+                'threshold' => 0.7 // Increased for better global recognition
             ]);
 
             $process = new Process([$cmdPython, $facenetCli, $jsonArgs]);

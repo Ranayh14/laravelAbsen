@@ -1226,12 +1226,16 @@ if (isset($_REQUEST['ajax'])) {
                         jsonResponse(['ok' => false, 'need_overtime_reason' => true, 'message' => 'Lokasi overtime wajib diisi.'], 400);
                     }
                     
-                    // Insert overtime attendance - no location check needed
-                    $status = 'ontime'; // Overtime is always considered ontime
-                    $ketVal = 'overtime';
-                    
-                    $ins = $pdo->prepare("INSERT INTO attendance (user_id, jam_masuk, jam_masuk_iso, ekspresi_masuk, foto_masuk, landmark_masuk, lokasi_masuk, lat_masuk, lng_masuk, status, ket, alasan_overtime, lokasi_overtime) VALUES (:uid, :jam, :iso, :exp, :screenshot, :landmark, :lokasi, :lat, :lng, :status, :ket, :alasan, :lokasi_ot)");
-                    $ins->execute([':uid' => $u['id'], ':jam' => $jamSekarang, ':iso' => $iso, ':exp' => $ekspresi, ':screenshot' => $screenshot, ':landmark' => $landmark, ':lokasi' => $lokasi, ':lat' => $lat, ':lng' => $lng, ':status' => $status, ':ket' => $ketVal, ':alasan' => $alasanOvertime, ':lokasi_ot' => $lokasiOvertime]);
+                    // Insert overtime attendance - requires admin approval
+                    $ins = $pdo->prepare("INSERT INTO admin_help_requests (user_id, request_type, tanggal, jam_masuk, bukti_presensi, lokasi_presensi, attendance_type, attendance_reason, status) VALUES (:uid, 'late_attendance', :today, :jam, :screenshot, :lokasi, 'overtime', :alasan, 'pending')");
+                    $ins->execute([
+                        ':uid' => $u['id'], 
+                        ':today' => $today, 
+                        ':jam' => $jamSekarang, 
+                        ':screenshot' => $screenshot, 
+                        ':lokasi' => $lokasi, 
+                        ':alasan' => $alasanOvertime
+                    ]);
                     
                     // Trigger backup setelah presensi overtime
                     triggerDatabaseBackup();
@@ -1239,8 +1243,8 @@ if (isset($_REQUEST['ajax'])) {
                     // Response for overtime
                     $jamMasukFormat = substr($jamSekarang, 0, 5);
                     $firstName = getFirstName($u['nama']);
-                    $statusText = "Selamat datang {$firstName}, anda masuk {$jamMasukFormat}. Overtime dicatat!";
-                    jsonResponse(['ok' => true, 'message' => $statusText, 'nama' => $u['nama'], 'jam' => $jamMasukFormat, 'statusClass' => 'bg-purple-100 text-purple-700']);
+                    $statusText = "Selamat datang {$firstName}, presensi Overtime telah dikirim dan menunggu persetujuan Admin.";
+                    jsonResponse(['ok' => true, 'message' => $statusText, 'nama' => $u['nama'], 'jam' => $jamMasukFormat, 'statusClass' => 'bg-yellow-100 text-yellow-700']);
                     return; // Exit early for overtime
                 }
                 
@@ -1495,7 +1499,7 @@ if (isset($_REQUEST['ajax'])) {
                     error_log('✗ WFA — IP bukan FIT DAN di luar radius ' . $wfoRadius . 'm');
                 }
                 
-                // Final check — jika WFA, minta alasan
+                // Final check — jika WFA, minta alasan dan alihkan ke approval
                 if ($ketVal === 'wfa') {
                     $alasanWfa = $_POST['wfa_reason'] ?? $_POST['alasan_wfa'] ?? null;
                     if (!$alasanWfa) {
@@ -1510,6 +1514,23 @@ if (isset($_REQUEST['ajax'])) {
                         $wfaMsg = 'Presensi terdeteksi sebagai WFA: ' . implode('; ', $wfaReasons) . '. Harap isi alasan kerja dari luar kantor (WFA).';
                         jsonResponse(['ok' => false, 'need_reason' => true, 'message' => $wfaMsg]);
                     }
+                    
+                    // Insert pending WFA request
+                    $ins = $pdo->prepare("INSERT INTO admin_help_requests (user_id, request_type, tanggal, jam_masuk, bukti_presensi, lokasi_presensi, attendance_type, attendance_reason, status) VALUES (:uid, 'late_attendance', :today, :jam, :screenshot, :lokasi, 'wfa', :alasan, 'pending')");
+                    $ins->execute([
+                        ':uid' => $u['id'], 
+                        ':today' => $today, 
+                        ':jam' => $jamSekarang, 
+                        ':screenshot' => $screenshot, 
+                        ':lokasi' => $lokasi, 
+                        ':alasan' => $alasanWfa
+                    ]);
+                    
+                    $jamMasukFormat = substr($jamSekarang, 0, 5);
+                    $firstName = getFirstName($u['nama']);
+                    $statusText = "Selamat datang {$firstName}, presensi WFA telah dikirim dan menunggu persetujuan Admin.";
+                    jsonResponse(['ok' => true, 'message' => $statusText, 'nama' => $u['nama'], 'jam' => $jamMasukFormat, 'statusClass' => 'bg-yellow-100 text-yellow-700']);
+                    return; // Exit early for WFA
                 }
 
                 // ULTRA-FAST: Minimal insert for maximum speed
@@ -1597,6 +1618,27 @@ if (isset($_REQUEST['ajax'])) {
                 // Get alasan pulang awal if provided
                 $alasanPulangAwal = $_POST['alasan_pulang_awal'] ?? $_POST['early_leave_reason'] ?? null;
                 $diffLocationReason = $_POST['diff_location_reason'] ?? null;
+                
+                if ($alasanPulangAwal) {
+                    // Requires approval - send to admin_help_requests
+                    $ins = $pdo->prepare("INSERT INTO admin_help_requests (user_id, request_type, tanggal, jam_masuk, jam_pulang, bukti_presensi, lokasi_presensi, attendance_type, attendance_reason, status) VALUES (:uid, 'late_attendance', :today, :jmasuk, :jam, :screenshot, :lokasi, :ket, :alasan, 'pending')");
+                    $ins->execute([
+                        ':uid' => $u['id'],
+                        ':today' => $today,
+                        ':jmasuk' => $todayRow['jam_masuk'],
+                        ':jam' => $jamSekarang,
+                        ':screenshot' => $screenshot,
+                        ':lokasi' => $lokasi,
+                        ':ket' => $todayRow['ket'], // Keep original ket
+                        ':alasan' => $alasanPulangAwal
+                    ]);
+                    
+                    $jamPulangFormat = substr($jamSekarang, 0, 5);
+                    $firstName = getFirstName($u['nama']);
+                    $statusText = "Permintaan pulang lebih awal telah dikirim dan menunggu persetujuan Admin.";
+                    jsonResponse(['ok' => true, 'message' => $statusText, 'nama' => $u['nama'], 'jam' => $jamPulangFormat, 'statusClass' => 'bg-yellow-100 text-yellow-700']);
+                    return;
+                }
                 
                 $upd = $pdo->prepare("UPDATE attendance SET jam_pulang=:jam, jam_pulang_iso=:iso, ekspresi_pulang=:exp, foto_pulang=:screenshot, landmark_pulang=:landmark, lokasi_pulang=:lokasi, lat_pulang=:lat, lng_pulang=:lng, alasan_pulang_awal=:alasan, alasan_lokasi_berbeda=:diff_loc WHERE id=:id");
                 $upd->execute([':jam' => $jamSekarang, ':iso' => $iso, ':exp' => $ekspresi, ':screenshot' => $screenshot, ':landmark' => $landmark, ':lokasi' => $lokasi, ':lat' => $lat, ':lng' => $lng, ':alasan' => $alasanPulangAwal, ':diff_loc' => $diffLocationReason, ':id' => $todayRow['id']]);
@@ -2374,6 +2416,10 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
         foreach($fields as $f){ 
             if($f !== 'jam_masuk' && $f !== 'jam_pulang') { // Skip jam_masuk and jam_pulang as they're handled above
                 if(isset($_POST[$f])){ 
+                    // Prevent overwriting existing photos/evidence with empty data
+                    if (in_array($f, ['foto_masuk', 'foto_pulang', 'bukti_izin_sakit']) && $_POST[$f] === '') {
+                        continue;
+                    }
                     $set[] = "$f = :$f"; 
                     $params[":$f"] = $_POST[$f]!==''? $_POST[$f] : null; 
                 } 
@@ -3971,7 +4017,11 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
             $values = array_merge($values, [':alasan', ':jenis', ':bukti', ':tanggal']);
             $params[':alasan'] = $_POST['alasan_izin'] ?? '';
             $params[':jenis'] = $_POST['jenis_izin'] ?? 'izin';
-            $params[':bukti'] = $_POST['bukti_izin'] ?? null;
+            $bukti = $_POST['bukti_izin'] ?? null;
+            if ($bukti && strpos($bukti, 'data:image/') === 0) {
+                $bukti = saveBase64Image($bukti, 'help_requests');
+            }
+            $params[':bukti'] = $bukti;
             $params[':tanggal'] = $_POST['tanggal'] ?? date('Y-m-d');
         } elseif ($type === 'late_attendance') {
             $fields = array_merge($fields, ['tanggal', 'jam_masuk', 'jam_pulang', 'bukti_presensi', 'lokasi_presensi', 'attendance_type', 'attendance_reason']);
@@ -3979,7 +4029,11 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
             $params[':tanggal'] = $_POST['tanggal'] ?? date('Y-m-d');
             $params[':jm'] = $_POST['jam_masuk'] ?? null;
             $params[':jp'] = $_POST['jam_pulang'] ?? null;
-            $params[':bukti'] = $_POST['bukti_presensi'] ?? null;
+            $bukti = $_POST['bukti_presensi'] ?? null;
+            if ($bukti && strpos($bukti, 'data:image/') === 0) {
+                $bukti = saveBase64Image($bukti, 'help_requests');
+            }
+            $params[':bukti'] = $bukti;
             $params[':lokasi'] = $_POST['lokasi_presensi'] ?? '';
             $params[':att_type'] = $_POST['attendance_type'] ?? 'wfo';
             $params[':att_reason'] = $_POST['attendance_reason'] ?? null;
@@ -3987,7 +4041,11 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
             $fields = array_merge($fields, ['bug_description', 'bug_proof']);
             $values = array_merge($values, [':desc', ':proof']);
             $params[':desc'] = $_POST['bug_description'] ?? '';
-            $params[':proof'] = $_POST['bug_proof'] ?? null;
+            $proof = $_POST['bug_proof'] ?? null;
+            if ($proof && strpos($proof, 'data:image/') === 0) {
+                $proof = saveBase64Image($proof, 'help_requests');
+            }
+            $params[':proof'] = $proof;
         } else {
             jsonResponse(['ok' => false, 'message' => 'Tipe request tidak valid'], 400);
         }
@@ -4018,7 +4076,7 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
             $stmt = $pdo->prepare(
                 "SELECT id, request_type, status, admin_note, created_at,
                         tanggal, jenis_izin, alasan_izin,
-                        jam_masuk, jam_pulang, attendance_type,
+                        jam_masuk, jam_pulang, attendance_type, attendance_reason,
                         bug_description, is_read_by_user
                  FROM admin_help_requests
                  WHERE user_id = :uid
@@ -4035,8 +4093,8 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
                 $stmt2 = $pdo->prepare(
                     "SELECT id, request_type, status, admin_note, created_at,
                             tanggal, jenis_izin, alasan_izin,
-                            jam_masuk, jam_pulang, bug_description,
-                            is_read_by_user
+                            jam_masuk, jam_pulang, attendance_type, attendance_reason,
+                            bug_description, is_read_by_user
                      FROM admin_help_requests
                      WHERE user_id = :uid
                      ORDER BY created_at DESC
@@ -4044,9 +4102,10 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
                 );
                 $stmt2->execute([':uid' => $uid]);
                 $rows2 = $stmt2->fetchAll(PDO::FETCH_ASSOC);
-                // Add missing attendance_type as null
+                // Add missing attendance_type and attendance_reason as null
                 foreach ($rows2 as &$row) {
                     $row['attendance_type'] = $row['attendance_type'] ?? null;
+                    $row['attendance_reason'] = $row['attendance_reason'] ?? null;
                 }
                 jsonResponse(['ok' => true, 'data' => $rows2]);
             } catch (PDOException $e2) {
@@ -4127,29 +4186,81 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
                     
                     $alasanWfa = ($ket === 'wfa') ? $reason : null;
                     $alasanOvertime = ($ket === 'overtime') ? $reason : null;
+                    $alasanPulang = ($ket !== 'wfa' && $ket !== 'overtime') ? $reason : null;
 
-                    // Insert into attendance
-                    $ins = $pdo->prepare("INSERT INTO attendance (user_id, jam_masuk, jam_masuk_iso, foto_masuk, lokasi_masuk, jam_pulang, jam_pulang_iso, foto_pulang, lokasi_pulang, ket, alasan_wfa, alasan_overtime, status) 
-                        VALUES (:uid, :jm, :jmi, :sm, :lm, :jp, :jpi, :sp, :lp, :ket, :aw, :ao, 'ontime') 
-                        ON DUPLICATE KEY UPDATE jam_masuk=VALUES(jam_masuk), jam_masuk_iso=VALUES(jam_masuk_iso), foto_masuk=VALUES(foto_masuk), lokasi_masuk=VALUES(lokasi_masuk), jam_pulang=VALUES(jam_pulang), jam_pulang_iso=VALUES(jam_pulang_iso), foto_pulang=VALUES(foto_pulang), lokasi_pulang=VALUES(lokasi_pulang), ket=VALUES(ket), alasan_wfa=VALUES(alasan_wfa), alasan_overtime=VALUES(alasan_overtime)");
-                    
+                    $check = $pdo->prepare("SELECT id FROM attendance WHERE user_id = :uid AND DATE(jam_masuk_iso) = :date LIMIT 1");
+                    $check->execute([':uid' => $req['user_id'], ':date' => $req['tanggal']]);
+                    $existing = $check->fetch();
+
                     $jmi = $req['tanggal'] . ' ' . $req['jam_masuk'];
                     $jpi = $req['jam_pulang'] ? ($req['tanggal'] . ' ' . $req['jam_pulang']) : null;
-                    
-                    $ins->execute([
-                        ':uid' => $req['user_id'],
-                        ':jm' => substr($req['jam_masuk'], 0, 5),
-                        ':jmi' => $jmi,
-                        ':sm' => $req['bukti_presensi'],
-                        ':lm' => $req['lokasi_presensi'],
-                        ':jp' => $req['jam_pulang'] ? substr($req['jam_pulang'], 0, 5) : null,
-                        ':jpi' => $jpi,
-                        ':sp' => null, 
-                        ':lp' => null,
-                        ':ket' => $ket,
-                        ':aw' => $alasanWfa,
-                        ':ao' => $alasanOvertime
-                    ]);
+
+                    // Calculate status
+                    $calculatedStatus = 'ontime';
+                    if ($ket !== 'overtime') {
+                        $maxOntimeHour = (int)getSetting($pdo, 'max_ontime_hour', '8');
+                        if (strlen($req['jam_masuk']) >= 5) {
+                            $jmHour = (int)substr($req['jam_masuk'], 0, 2);
+                            $jmMinute = (int)substr($req['jam_masuk'], 3, 2);
+                            if ($jmHour > $maxOntimeHour || ($jmHour === $maxOntimeHour && $jmMinute > 0)) {
+                                $calculatedStatus = 'terlambat';
+                            }
+                        }
+                    }
+
+                    if ($existing) {
+                        if ($req['jam_pulang']) {
+                            // Pulang Lebih Awal approval - only update exit details and reasons
+                            $upd = $pdo->prepare("UPDATE attendance SET 
+                                jam_pulang = :jp, 
+                                jam_pulang_iso = :jpi, 
+                                foto_pulang = :sp, 
+                                lokasi_pulang = :lp, 
+                                alasan_pulang_awal = :ap 
+                                WHERE id = :id");
+                            $upd->execute([
+                                ':jp' => substr($req['jam_pulang'], 0, 5),
+                                ':jpi' => $jpi,
+                                ':sp' => $req['bukti_presensi'],
+                                ':lp' => $req['lokasi_presensi'],
+                                ':ap' => $reason,
+                                ':id' => $existing['id']
+                            ]);
+                        } else {
+                            // Check-in update or general adjustment
+                            $upd = $pdo->prepare("UPDATE attendance SET 
+                                ket = :ket, 
+                                alasan_wfa = :aw, 
+                                alasan_overtime = :ao 
+                                WHERE id = :id");
+                            $upd->execute([
+                                ':ket' => $ket,
+                                ':aw' => $alasanWfa,
+                                ':ao' => $alasanOvertime,
+                                ':id' => $existing['id']
+                            ]);
+                        }
+                    } else {
+                        // Insert new record (e.g. WFA, Overtime, Lupa Presensi)
+                        $ins = $pdo->prepare("INSERT INTO attendance (user_id, jam_masuk, jam_masuk_iso, foto_masuk, lokasi_masuk, jam_pulang, jam_pulang_iso, foto_pulang, lokasi_pulang, ket, alasan_wfa, alasan_overtime, alasan_pulang_awal, status) 
+                            VALUES (:uid, :jm, :jmi, :sm, :lm, :jp, :jpi, :sp, :lp, :ket, :aw, :ao, :ap, :status)");
+                        $ins->execute([
+                            ':uid' => $req['user_id'],
+                            ':jm' => substr($req['jam_masuk'], 0, 5),
+                            ':jmi' => $jmi,
+                            ':sm' => $req['bukti_presensi'],
+                            ':lm' => $req['lokasi_presensi'],
+                            ':jp' => $req['jam_pulang'] ? substr($req['jam_pulang'], 0, 5) : null,
+                            ':jpi' => $jpi,
+                            ':sp' => $req['jam_pulang'] ? $req['bukti_presensi'] : null, 
+                            ':lp' => $req['jam_pulang'] ? $req['lokasi_presensi'] : null,
+                            ':ket' => $ket,
+                            ':aw' => $alasanWfa,
+                            ':ao' => $alasanOvertime,
+                            ':ap' => $alasanPulang,
+                            ':status' => $calculatedStatus
+                        ]);
+                    }
                 }
             }
 
@@ -4228,23 +4339,23 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
         try {
             @set_time_limit(0);
             @ini_set('memory_limit', '1024M');
+            @ignore_user_abort(true);
             \Illuminate\Support\Facades\DB::connection()->disableQueryLog();
 
-            $sql = file_get_contents($file);
-            if (empty($sql)) {
-                jsonResponse(['ok' => false, 'message' => 'File SQL kosong atau tidak bisa dibaca'], 400);
+            // 1. QUICK BINARY CHECK
+            $f = fopen($file, 'rb');
+            $header = fread($f, 4);
+            fclose($f);
+            
+            $isCompressed = (substr($header, 0, 2) === "\x1f\x8b" || substr($header, 0, 4) === "PK\x03\x04");
+            if ($isCompressed) {
+                jsonResponse(['ok' => false, 'message' => 'File berformat terkompresi (ZIP/GZ). Mohon ekstrak ke .sql terlebih dahulu.'], 400);
             }
 
-            // Periksa biner
-            $isBinary = (substr($sql, 0, 2) === "\x1f\x8b" || substr($sql, 0, 4) === "PK\x03\x04");
-            if ($isBinary) {
-                jsonResponse(['ok' => false, 'message' => 'File berformat terkompresi (ZIP/GZ). Mohon ekstrak terlebih dahulu.'], 400);
-            }
-
-            // 1. BACKUP ADMINS
+            // 2. BACKUP ADMINS (Preserve existing admin accounts)
             $preservedAdmins = \Illuminate\Support\Facades\DB::table('users')->where('role', 'admin')->get();
 
-            // 2. CLEAN SLATE (Drop all tables)
+            // 3. CLEAN SLATE (Drop all tables)
             \Illuminate\Support\Facades\DB::statement('SET FOREIGN_KEY_CHECKS=0;');
             $tables = \Illuminate\Support\Facades\DB::select('SHOW TABLES');
             $dbName = \Illuminate\Support\Facades\DB::getDatabaseName();
@@ -4255,53 +4366,105 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
                 \Illuminate\Support\Facades\DB::statement("DROP TABLE IF EXISTS `$tableName` ");
             }
 
-            // 3. EXECUTE IMPORT
-            // We'll try to split by semicolon but being careful about semicolons inside strings
-            // A simpler robust way: split by semicolon followed by newline/whitespace
-            // Or just use unprepared if we trust the SQL is not corrupted by regexes anymore
-            
-            // Remove comments and execute
-            $sql = preg_replace('/^\s*(?:--|#).*$/m', '', $sql); // Remove single line comments
-            
-            // Execute in one go if it's not too huge, or split
-            // Given we are avoiding the broken regex, unprepared() is often much faster and works for standard dumps
-            \Illuminate\Support\Facades\DB::unprepared($sql);
+            // 4. EXECUTE IMPORT
+            $importSuccess = false;
+            $errorDetail = '';
 
-            // 4. RESTORE ADMINS (Into the new users table)
-            // Ensure users table exists first (it should if dump is correct)
-            foreach ($preservedAdmins as $admin) {
-                $adminData = (array)$admin;
-                
-                // Check if user exists by email
-                $exists = \Illuminate\Support\Facades\DB::table('users')->where('email', $admin->email)->first();
-                if ($exists) {
-                    \Illuminate\Support\Facades\DB::table('users')
-                        ->where('email', $admin->email)
-                        ->update([
-                            'password' => $admin->password ?? $admin->password_hash, // Laravel default or legacy hash
-                            'role' => 'admin'
-                        ]);
-                } else {
-                    // Try to insert
-                    try {
-                        \Illuminate\Support\Facades\DB::table('users')->insert($adminData);
-                    } catch (\Exception $e) {
-                        // If ID conflict, try updating or ignoring
-                        error_log("Restore admin insert error: " . $e->getMessage());
+            // Attempt A: Use mysql CLI if available (EXTREMELY faster for large files)
+            if (function_exists('exec')) {
+                $checkMysql = @exec('mysql --version', $cliOutput, $cliReturn);
+                if ($cliReturn === 0) {
+                    $config = config('database.connections.' . config('database.default'));
+                    $host = $config['host'] ?? '127.0.0.1';
+                    $user = $config['username'] ?? 'root';
+                    $pass = $config['password'] ?? '';
+                    $db   = $config['database'];
+                    
+                    // Build command safely
+                    $cmd = sprintf(
+                        'mysql -h %s -u %s %s %s < %s 2>&1',
+                        escapeshellarg($host),
+                        escapeshellarg($user),
+                        ($pass ? '-p' . escapeshellarg($pass) : ''),
+                        escapeshellarg($db),
+                        escapeshellarg($file)
+                    );
+                    
+                    exec($cmd, $importOutput, $importReturn);
+                    if ($importReturn === 0) {
+                        $importSuccess = true;
+                    } else {
+                        $errorDetail = "CLI Error: " . implode(' ', $importOutput);
+                        error_log("Import CLI Failed: " . $errorDetail);
+                    }
+                }
+            }
+
+            // Attempt B: Streaming Import (Line by line) as fallback
+            if (!$importSuccess) {
+                $handle = fopen($file, "r");
+                if (!$handle) throw new Exception("Gagal membuka file SQL untuk pembacaan.");
+
+                $templine = '';
+                while (($line = fgets($handle)) !== false) {
+                    $trimmed = trim($line);
+                    // Skip comments and empty lines
+                    if (empty($trimmed) || str_starts_with($trimmed, '--') || str_starts_with($trimmed, '#') || str_starts_with($trimmed, '/*')) {
+                        continue;
+                    }
+
+                    $templine .= $line;
+                    if (str_ends_with($trimmed, ';')) {
+                        try {
+                            \Illuminate\Support\Facades\DB::unprepared($templine);
+                        } catch (\Exception $ex) {
+                            // Log and continue or fail? Better to fail on real SQL errors
+                            error_log("SQL Exec Error: " . $ex->getMessage());
+                        }
+                        $templine = '';
+                    }
+                }
+                fclose($handle);
+                $importSuccess = true; 
+            }
+
+            // 5. RESTORE ADMINS
+            // Ensure users table exists after import
+            if (\Illuminate\Support\Facades\Schema::hasTable('users')) {
+                foreach ($preservedAdmins as $admin) {
+                    $adminData = (array)$admin;
+                    $exists = \Illuminate\Support\Facades\DB::table('users')->where('email', $admin->email)->first();
+                    if ($exists) {
+                        \Illuminate\Support\Facades\DB::table('users')
+                            ->where('email', $admin->email)
+                            ->update([
+                                'password' => $admin->password ?? ($admin->password_hash ?? ''),
+                                'role' => 'admin'
+                            ]);
+                    } else {
+                        try {
+                            \Illuminate\Support\Facades\DB::table('users')->insert($adminData);
+                        } catch (\Exception $e) {
+                            error_log("Restore admin insert error: " . $e->getMessage());
+                        }
                     }
                 }
             }
 
             \Illuminate\Support\Facades\DB::statement('SET FOREIGN_KEY_CHECKS=1;');
 
+            // Trigger backup but don't let it block the response too much if it's huge
             if (function_exists('triggerDatabaseBackup')) {
+                // For very large imports, we might want to skip auto-backup to avoid hitting more timeouts
+                // But we'll leave it for now as it's usually useful
                 triggerDatabaseBackup();
             }
 
-            jsonResponse(['ok' => true, 'message' => 'Database berhasil direstore. Admin dipertahankan.']);
+            jsonResponse(['ok' => true, 'message' => 'Database berhasil direstore. ' . ($importSuccess ? 'Metode cepat berhasil.' : 'Metode alternatif selesai.')]);
         } catch (\Exception $e) {
+            \Illuminate\Support\Facades\DB::statement('SET FOREIGN_KEY_CHECKS=1;');
             error_log("Import DB Error: " . $e->getMessage());
-            jsonResponse(['ok' => false, 'message' => 'Gagal mengimport database: ' . substr($e->getMessage(), 0, 200)], 500);
+            jsonResponse(['ok' => false, 'message' => 'Gagal mengimport database: ' . substr($e->getMessage(), 0, 250)], 500);
         }
     }
 

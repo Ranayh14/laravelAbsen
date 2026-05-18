@@ -95,12 +95,9 @@ function detectDevicePerformance() {
 }
 
 function getAdjustedRecognitionThreshold() {
-    const perf = detectDevicePerformance();
-    const isMobile = isMobileDevice();
-    let threshold = detectionConfig.recognitionThreshold;
-    if (isMobile) threshold += 0.05;
-    if (perf === 'low') threshold += 0.02;
-    return Math.min(0.6, threshold);
+    // Strictly enforce threshold to prevent false positives (matching wrong person).
+    // Do not increase threshold for mobile/low perf devices.
+    return detectionConfig.recognitionThreshold;
 }
 
 function getAdjustedQualityThreshold() {
@@ -529,11 +526,13 @@ function assessFaceQuality(face) {
     const box = face.detection.box;
     const area = box.width * box.height;
     let quality = 1.0;
-    if (area < 15000) quality *= 0.5;
+    // Mobile devices might have smaller camera resolutions, reduce required area
+    if (area < 8000) quality *= 0.5;
     const centerX = box.x + box.width / 2;
     const canvasCenterX = (canvas ? canvas.width : 640) / 2;
     const dist = Math.abs(centerX - canvasCenterX);
-    if (dist > 150) quality *= 0.6;
+    // Be more lenient with distance from center
+    if (dist > 200) quality *= 0.6;
     return quality;
 }
 
@@ -692,6 +691,7 @@ async function submitFinalAttendance(data) {
             // Simpan hasil verifikasi wajah di sessionStorage (landmark, bukan screenshot)
             sessionStorage.setItem('late_req_face_verified', JSON.stringify({
                 landmarks: data.landmarks,
+                screenshot: data.screenshot,
                 lokasi: data.lokasi,
                 timestamp: new Date().toISOString()
             }));

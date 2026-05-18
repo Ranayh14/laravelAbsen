@@ -30,9 +30,23 @@
                             <p class="text-xs text-blue-100">Solusi bantuan cepat untuk Anda</p>
                         </div>
                     </div>
-                    <button id="close-help-modal" class="p-2 hover:bg-white/20 rounded-full transition-colors">
-                        <i class="fi fi-rr-cross-small text-xl"></i>
-                    </button>
+<?php
+    $waNum = '6287890004465';
+    $waMsg = 'Hai Admin, Saya ingin meminta bantuan terkait ....';
+    if (isset($pdo) && function_exists('getSetting')) {
+        $waNum = getSetting($pdo, 'help_wa_number', '6287890004465');
+        $waMsg = getSetting($pdo, 'help_wa_message', 'Hai Admin, Saya ingin meminta bantuan terkait ....');
+    }
+    $waLink = "https://wa.me/" . urlencode(preg_replace('/[^0-9]/', '', $waNum)) . "?text=" . rawurlencode($waMsg);
+?>
+                    <div class="flex items-center gap-2">
+                        <a href="<?= htmlspecialchars($waLink) ?>" target="_blank" class="w-9 h-9 bg-green-500 hover:bg-green-600 rounded-full transition-colors flex items-center justify-center tooltip-wa shadow-md" title="Hubungi via WhatsApp">
+                            <i class="fi fi-sr-comment-alt text-base text-white"></i>
+                        </a>
+                        <button id="close-help-modal" class="w-9 h-9 hover:bg-white/20 rounded-full transition-colors flex items-center justify-center">
+                            <i class="fi fi-rr-cross text-lg text-white"></i>
+                        </button>
+                    </div>
                 </div>
                 <!-- Tab Navigation -->
                 <div class="flex gap-1 bg-white/10 rounded-2xl p-1">
@@ -494,16 +508,29 @@
                 let unreviewedCount = 0;
                 container.innerHTML = res.data.map(r => {
                     const statusBadge = renderStatusBadge(r.status);
-                    const typeLabel = {
-                        'past_attendance': '<i class="fi fi-rr-calendar-clock text-blue-500"></i> Presensi Terlewat',
-                        'late_attendance': '<i class="fi fi-rr-clock-three text-purple-500"></i> Lupa Presensi',
-                        'bug_report': '<i class="fi fi-rr-bug text-red-500"></i> Laporan Bug',
-                    }[r.request_type] || r.request_type;
+                    let typeLabel = r.request_type;
+                    if (r.request_type === 'past_attendance') typeLabel = '<i class="fi fi-rr-calendar-clock text-blue-500"></i> Lupa Presensi';
+                    else if (r.request_type === 'bug_report') typeLabel = '<i class="fi fi-rr-bug text-red-500"></i> Laporan Bug';
+                    else if (r.request_type === 'late_attendance') {
+                        if (r.jam_pulang) typeLabel = '<i class="fi fi-rr-exit text-orange-500"></i> Pulang Lebih Awal';
+                        else if (r.attendance_type === 'wfa') typeLabel = '<i class="fi fi-rr-home-location text-purple-500"></i> Presensi WFA';
+                        else if (r.attendance_type === 'overtime') typeLabel = '<i class="fi fi-rr-time-add text-indigo-500"></i> Presensi Overtime';
+                        else typeLabel = '<i class="fi fi-rr-time-past text-yellow-500"></i> Presensi Manual';
+                    }
                     const dateStr = r.tanggal ? `<span class="text-gray-400">📅 ${r.tanggal}</span>` :
                                    (r.created_at ? `<span class="text-gray-400">📅 ${r.created_at.slice(0,10)}</span>` : '');
                     let summary = '';
                     if (r.request_type === 'past_attendance') summary = (r.jenis_izin || '') + (r.alasan_izin ? ': ' + r.alasan_izin.slice(0,60) : '');
-                    if (r.request_type === 'late_attendance') summary = (r.jam_masuk ? 'Jam masuk: ' + r.jam_masuk.slice(0,5) : '') + (r.attendance_type ? ' (' + r.attendance_type.toUpperCase() + ')' : '');
+                    if (r.request_type === 'late_attendance') {
+                        if (r.jam_pulang) {
+                            summary = 'Jam pulang: ' + r.jam_pulang.slice(0,5);
+                            if (r.jam_masuk) {
+                                summary += ' | Jam masuk: ' + r.jam_masuk.slice(0,5);
+                            }
+                        } else {
+                            summary = (r.jam_masuk ? 'Jam masuk: ' + r.jam_masuk.slice(0,5) : '') + (r.attendance_type ? ' (' + r.attendance_type.toUpperCase() + ')' : '');
+                        }
+                    }
                     if (r.request_type === 'bug_report') summary = (r.bug_description || '').slice(0, 80);
 
                     const adminNote = (r.admin_note && r.status !== 'pending') ?

@@ -89,7 +89,7 @@
 </div>
 
 <!-- Modal Jadwal Kerja -->
-<div id="work-schedule-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden">
+<div id="work-schedule-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden p-4">
     <div class="bg-white p-6 rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
         <div class="flex justify-between items-center mb-4">
             <h3 class="text-xl font-bold">Kelola Jadwal Kerja</h3>
@@ -138,7 +138,7 @@
 </div>
 
 <!-- Manual Holidays Modal -->
-<div id="manual-holidays-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden">
+<div id="manual-holidays-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden p-4">
     <div class="bg-white p-6 rounded-lg shadow-2xl w-full max-w-xl">
         <h3 class="text-xl font-bold mb-4">Kelola Hari Libur Manual</h3>
         <div class="flex gap-2 mb-3">
@@ -165,7 +165,7 @@
 </div>
 
 <!-- Modal Pilihan Export Data Presensi -->
-<div id="export-presensi-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden">
+<div id="export-presensi-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden p-4">
     <div class="bg-white p-6 rounded-lg shadow-2xl w-full max-w-md">
         <div class="flex justify-between items-center mb-4">
             <h3 class="text-xl font-bold">Export Data Presensi</h3>
