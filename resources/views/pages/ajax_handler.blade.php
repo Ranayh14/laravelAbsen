@@ -828,10 +828,11 @@ if (isset($_REQUEST['ajax'])) {
                 }
                 
                 // Get regular attendance records with pagination
-                // Ambil landmark sebagai pengganti screenshot (40x lebih kecil)
-                $sql = "SELECT a.id, a.user_id, a.jam_masuk, a.jam_masuk_iso, a.ekspresi_masuk, a.foto_masuk, a.screenshot_masuk, a.landmark_masuk, a.lokasi_masuk, a.lat_masuk, a.lng_masuk,
-                    a.jam_pulang, a.jam_pulang_iso, a.ekspresi_pulang, a.foto_pulang, a.screenshot_pulang, a.landmark_pulang, a.lokasi_pulang, a.lat_pulang, a.lng_pulang,
-                    a.status, a.ket, a.alasan_wfa, a.alasan_izin_sakit, a.daily_report_id, a.created_at,
+                // PERFORMANCE: Exclude foto_masuk/foto_pulang/screenshot (large base64 blobs)
+                // Photos are lazy-loaded via get_attendance_evidence endpoint
+                $sql = "SELECT a.id, a.user_id, a.jam_masuk, a.jam_masuk_iso, a.ekspresi_masuk, a.landmark_masuk, a.lokasi_masuk, a.lat_masuk, a.lng_masuk,
+                    a.jam_pulang, a.jam_pulang_iso, a.ekspresi_pulang, a.landmark_pulang, a.lokasi_pulang, a.lat_pulang, a.lng_pulang,
+                    a.status, a.ket, a.alasan_wfa, a.alasan_overtime, a.lokasi_overtime, a.alasan_izin_sakit, a.daily_report_id, a.created_at,
                     u.nim, u.nama, u.startup,
                     IF((a.foto_masuk IS NOT NULL AND a.foto_masuk != '') OR (a.screenshot_masuk IS NOT NULL AND a.screenshot_masuk != '') OR (a.landmark_masuk IS NOT NULL AND a.landmark_masuk != ''), 1, 0) as has_sm,
                     IF((a.foto_pulang IS NOT NULL AND a.foto_pulang != '') OR (a.screenshot_pulang IS NOT NULL AND a.screenshot_pulang != '') OR (a.landmark_pulang IS NOT NULL AND a.landmark_pulang != ''), 1, 0) as has_sp,
@@ -864,15 +865,8 @@ if (isset($_REQUEST['ajax'])) {
                     error_log("get_attendance: No records found for the current query.");
                 }
                 
-                // Add translated expressions for UI and validate Base64 data
+                // Add translated expressions for UI (no photo validation needed - photos excluded from list)
                 foreach ($attendanceData as &$row) {
-                    $placeholder = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIiB2aWV3Qm94PSIwIDAgMjAwIDIwMCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iI2Y4ZDdkNyIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LXNpemU9IjE2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjNzIxYzI0IiBkeT0iLjNlbSI+RGF0YSBDb3JydXB0ZWQ8L3RleHQ+PC9zdmc+';
-                    
-                    if (isset($row['foto_masuk']) && strpos($row['foto_masuk'], 'data:image/') === 0 && strlen($row['foto_masuk']) < 100) $row['foto_masuk'] = $placeholder;
-                    if (isset($row['screenshot_masuk']) && strpos($row['screenshot_masuk'], 'data:image/') === 0 && strlen($row['screenshot_masuk']) < 100) $row['screenshot_masuk'] = $placeholder;
-                    if (isset($row['foto_pulang']) && strpos($row['foto_pulang'], 'data:image/') === 0 && strlen($row['foto_pulang']) < 100) $row['foto_pulang'] = $placeholder;
-                    if (isset($row['screenshot_pulang']) && strpos($row['screenshot_pulang'], 'data:image/') === 0 && strlen($row['screenshot_pulang']) < 100) $row['screenshot_pulang'] = $placeholder;
-
                     $row['ekspresi_masuk_label'] = translateExpression($row['ekspresi_masuk'] ?? null);
                     $row['ekspresi_masuk_class'] = getExpressionClass($row['ekspresi_masuk'] ?? null);
                     $row['ekspresi_pulang_label'] = translateExpression($row['ekspresi_pulang'] ?? null);
@@ -922,9 +916,10 @@ if (isset($_REQUEST['ajax'])) {
                 }
                 
                 // Get regular attendance records with pagination
-                $sql = "SELECT a.id, a.user_id, a.jam_masuk, a.jam_masuk_iso, a.ekspresi_masuk, a.foto_masuk, a.screenshot_masuk, a.landmark_masuk, a.lokasi_masuk, a.lat_masuk, a.lng_masuk,
-                    a.jam_pulang, a.jam_pulang_iso, a.ekspresi_pulang, a.foto_pulang, a.screenshot_pulang, a.landmark_pulang, a.lokasi_pulang, a.lat_pulang, a.lng_pulang,
-                    a.status, a.ket, a.alasan_wfa, a.alasan_izin_sakit, a.daily_report_id, a.created_at,
+                // PERFORMANCE: Exclude foto_masuk/foto_pulang/screenshot (large base64 blobs)
+                $sql = "SELECT a.id, a.user_id, a.jam_masuk, a.jam_masuk_iso, a.ekspresi_masuk, a.landmark_masuk, a.lokasi_masuk, a.lat_masuk, a.lng_masuk,
+                    a.jam_pulang, a.jam_pulang_iso, a.ekspresi_pulang, a.landmark_pulang, a.lokasi_pulang, a.lat_pulang, a.lng_pulang,
+                    a.status, a.ket, a.alasan_wfa, a.alasan_overtime, a.lokasi_overtime, a.alasan_izin_sakit, a.daily_report_id, a.created_at,
                     u.nim, u.nama, u.startup,
                     IF((a.foto_masuk IS NOT NULL AND a.foto_masuk != '') OR (a.screenshot_masuk IS NOT NULL AND a.screenshot_masuk != '') OR (a.landmark_masuk IS NOT NULL AND a.landmark_masuk != ''), 1, 0) as has_sm,
                     IF((a.foto_pulang IS NOT NULL AND a.foto_pulang != '') OR (a.screenshot_pulang IS NOT NULL AND a.screenshot_pulang != '') OR (a.landmark_pulang IS NOT NULL AND a.landmark_pulang != ''), 1, 0) as has_sp,
@@ -1297,12 +1292,26 @@ if (isset($_REQUEST['ajax'])) {
                     jsonResponse(['ok' => false, 'message' => 'Lokasi terdeteksi di luar negara Indonesia (kemungkinan Fake GPS/VPN). Mohon matikan aplikasi pemalsu lokasi dan coba lagi.'], 400);
                 }
                 
-                // Accept GPS even with lower accuracy (indoors/gymnasium buildings are common)
-                // Log warning but don't reject - GPS accuracy can be low indoors which is normal
-                if ($gpsAccuracy !== null && $gpsAccuracy > 50) {
-                    error_log('GPS accuracy low: ' . round($gpsAccuracy) . 'm - accepting anyway (user may be indoors)');
+                // -------------------------------------------------------------------------
+                // ANTI-SPOOFING: GPS Accuracy Check
+                // Fake GPS apps usually report unrealistically high accuracy (e.g., exactly 0m or very low)
+                // But also very high values. Real GPS indoors: 20-100m. Real GPS outdoors: 3-30m.
+                // Reject if accuracy is suspiciously perfect (<1m - fake GPS hallmark) 
+                // OR completely unusable (>150m means the device likely has no actual GPS lock)
+                // -------------------------------------------------------------------------
+                if ($gpsAccuracy !== null) {
+                    if ($gpsAccuracy < 1.0) {
+                        error_log("Anti-Spoofing: Suspiciously perfect GPS accuracy ({$gpsAccuracy}m) - likely fake GPS app");
+                        jsonResponse(['ok' => false, 'message' => 'Akurasi GPS mencurigakan (' . round($gpsAccuracy, 1) . 'm) - kemungkinan menggunakan aplikasi Fake GPS. Mohon matikan aplikasi tersebut dan coba lagi.'], 400);
+                    }
+                    if ($gpsAccuracy > 150) {
+                        error_log("Anti-Spoofing: GPS accuracy too low ({$gpsAccuracy}m) - no real GPS lock");
+                        jsonResponse(['ok' => false, 'message' => 'Sinyal GPS terlalu lemah (akurasi: ' . round($gpsAccuracy) . 'm). Mohon pergi ke area terbuka dan pastikan GPS aktif.'], 400);
+                    }
+                    error_log("GPS Accuracy: {$gpsAccuracy}m - accepted");
                 }
                 
+
                 // OPTIMIZED: Skip reverse geocoding for faster performance
                 // Use coordinates directly - reverse geocoding can be slow and is not critical
                 if (empty($lokasi) || strpos($lokasi, 'Lokasi:') === 0) {
@@ -1327,42 +1336,49 @@ if (isset($_REQUEST['ajax'])) {
                 // Determine WFO via API or coordinate fallback
                 $wfoMode = strtolower(getSetting($pdo, 'wfo_mode', 'api'));
                 
-                // CRITICAL: IP detection - prioritize POST data first (from frontend), then REMOTE_ADDR
-                // Skip localhost IPs (127.0.0.1, ::1) as they indicate local development/testing
-                $publicIp = $_POST['public_ip'] ?? '';
-                
-                // If POST IP is empty or localhost, try REMOTE_ADDR (but skip localhost)
-                if (empty($publicIp) || !filter_var($publicIp, FILTER_VALIDATE_IP) || 
-                    $publicIp === '127.0.0.1' || $publicIp === '::1' || strpos($publicIp, '127.') === 0) {
-                    
-                    // Try REMOTE_ADDR but skip if it's localhost
-                    $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '';
-                    if (!empty($remoteAddr) && filter_var($remoteAddr, FILTER_VALIDATE_IP) && 
-                        $remoteAddr !== '127.0.0.1' && $remoteAddr !== '::1' && strpos($remoteAddr, '127.') !== 0) {
-                        $publicIp = $remoteAddr;
-                    } else {
-                        // Try other sources as fallback
-                        $ipSources = [
-                            $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '',
-                            $_SERVER['HTTP_CF_CONNECTING_IP'] ?? '',
-                            $_SERVER['HTTP_X_REAL_IP'] ?? ''
-                        ];
-                        
-                        foreach ($ipSources as $ipSource) {
-                            if (!empty($ipSource)) {
-                                if (strpos($ipSource, ',') !== false) {
-                                    $ipSource = trim(explode(',', $ipSource)[0]);
-                                }
-                                // Accept both public and private IPs, but skip localhost
-                                if (filter_var($ipSource, FILTER_VALIDATE_IP) && 
-                                    $ipSource !== '127.0.0.1' && $ipSource !== '::1' && strpos($ipSource, '127.') !== 0) {
-                                    $publicIp = $ipSource;
-                                    break;
-                                }
-                            }
-                        }
+                // CRITICAL: IP detection strategy
+                // Priority: REMOTE_ADDR first (this IS the campus private IP when user is on campus WiFi)
+                // Only fall back to POST public_ip for additional context
+                // Reason: frontend fetches IP via api.ipify.org which returns PUBLIC IP (NAT'd),
+                //         losing the private 10.x.x.x campus WiFi IP. REMOTE_ADDR from server
+                //         IS the actual direct connection IP.
+                $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '';
+                $forwardedFor = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '';
+                $postPublicIp = $_POST['public_ip'] ?? '';
+
+                // Build candidate IP list: REMOTE_ADDR first, then forwarded, then POST
+                $ipCandidates = [];
+                if (!empty($remoteAddr) && filter_var($remoteAddr, FILTER_VALIDATE_IP)) {
+                    $ipCandidates[] = $remoteAddr;
+                }
+                if (!empty($forwardedFor)) {
+                    foreach (explode(',', $forwardedFor) as $ip) {
+                        $ip = trim($ip);
+                        if (filter_var($ip, FILTER_VALIDATE_IP)) $ipCandidates[] = $ip;
                     }
                 }
+                if (!empty($postPublicIp) && filter_var($postPublicIp, FILTER_VALIDATE_IP)) {
+                    $ipCandidates[] = $postPublicIp;
+                }
+
+                // Pick the best IP: prefer private campus IP (10.x.x.x) over public IP
+                $publicIp = '';
+                $campusPrivateIp = '';
+                foreach ($ipCandidates as $candidate) {
+                    $isLocalhost = in_array($candidate, ['127.0.0.1', '::1']) || strpos($candidate, '127.') === 0;
+                    if ($isLocalhost) continue;
+                    if (isTelkomUniversityPrivateIp($candidate)) {
+                        $campusPrivateIp = $candidate; // Found campus IP!
+                    }
+                    if (empty($publicIp)) {
+                        $publicIp = $candidate; // Use first non-localhost as fallback
+                    }
+                }
+                // If we found a campus private IP, prefer it for WFO detection
+                if (!empty($campusPrivateIp)) {
+                    $publicIp = $campusPrivateIp;
+                }
+
                 
                 // Log IP detection result
                 if (empty($publicIp) || !filter_var($publicIp, FILTER_VALIDATE_IP)) {
@@ -1456,8 +1472,12 @@ if (isset($_REQUEST['ajax'])) {
                     $a = sin($dLat/2) * sin($dLat/2) + cos(deg2rad($lat)) * cos(deg2rad($wfoLat)) * sin($dLng/2) * sin($dLng/2);
                     $c = 2 * atan2(sqrt($a), sqrt(1-$a));
                     $distance = $earth * $c;
-                    $isInsideRadius = ($distance <= $wfoRadius);
-                    error_log("WFO GPS Check - Jarak ke FIT: " . round($distance) . "m, Radius max: {$wfoRadius}m, Inside: " . ($isInsideRadius ? 'YES' : 'NO'));
+                    // STRICT: Radius WFO max 200m agar tidak mencakup perumahan sekitar kampus.
+                    // Gedung FIT Telkom University (koordinat presisi): -6.97662, 107.63273
+                    // Perumahan/kos-kosan mulai dari radius ~120-200m ke luar kampus.
+                    $effectiveRadius = min($wfoRadius, 600); // Max 600m — covers full TelU campus area
+                    $isInsideRadius = ($distance <= $effectiveRadius);
+                    error_log("WFO GPS Check - Jarak ke FIT: " . round($distance) . "m, Radius: {$effectiveRadius}m, Inside: " . ($isInsideRadius ? 'YES' : 'NO'));
                 }
                 
                 // Validasi IP Address FIT
@@ -1478,25 +1498,43 @@ if (isset($_REQUEST['ajax'])) {
                 // Logging debug
                 error_log("=== WFO STRICT VALIDATION ===");
                 error_log("IP: " . ($publicIp ?: 'EMPTY') . " | FIT Network: " . ($isInsideTeluByApi ? 'YES' : 'NO'));
-                error_log("GPS Jarak ke FIT: " . ($distance !== null ? round($distance) . 'm' : 'N/A') . " | Inside Radius (" . $wfoRadius . "m): " . ($isInsideRadius ? 'YES' : 'NO'));
+                error_log("GPS Jarak ke FIT: " . ($distance !== null ? round($distance) . 'm' : 'N/A') . " | Inside Radius (200m cap): " . ($isInsideRadius ? 'YES' : 'NO'));
                 
-                // KEPUTUSAN FINAL: WFO jika SALAH SATU syarat terpenuhi
-                // 1. IP terdeteksi sebagai jaringan FIT (Prioritas)
-                // 2. ATAU GPS dalam radius kampus FIT
-                $isInsideTelu = $isInsideTeluByApi || $isInsideRadius;
+                // =========================================================
+                // KEPUTUSAN FINAL WFO/WFA:
+                // WFO = HARUS memenuhi KEDUA syarat:
+                //   1. IP terdeteksi sebagai jaringan Telkom University (WiFi/LAN kampus)
+                //   2. DAN GPS dalam radius 200m dari gedung FIT
+                // Jika hanya salah satu => WFA
+                // Rasionalisasi: Perumahan/kos sekitar TelU bisa masuk radius GPS ~100-300m,
+                //   dan beberapa kos menggunakan WiFi TelU. Dengan AND logic,
+                //   orang di rumah yang pakai WiFi kampus pun akan terdeteksi WFA
+                //   karena GPS mereka di luar radius 200m.
+                // =========================================================
                 $ketVal = 'wfa'; // Default WFA
-                
-                if ($isInsideTeluByApi || $isInsideRadius) {
+
+                // =========================================================
+                // KEPUTUSAN FINAL WFO/WFA — OR logic yang lebih adil:
+                //   WFO jika:
+                //     a) IP terdeteksi jaringan TelU (WiFi/LAN kampus) — bukti kuat
+                //     ATAU
+                //     b) GPS dalam radius kampus yang cukup luas (600m)
+                //        (untuk yang pakai data seluler di dalam kampus)
+                // Alasan OR: IP kampus sudah sangat kuat sebagai bukti kehadiran.
+                //   Kos sekitar kampus tidak akan terhubung ke WiFi internal 10.x.x.x.
+                // =========================================================
+                if ($isInsideTeluByApi) {
                     $ketVal = 'wfo';
-                    error_log('✓ WFO TERDETEKSI — IP FIT valid ATAU dalam radius ' . round($distance) . 'm dari gedung FIT');
-                } elseif ($isInsideTeluByApi && !$isInsideRadius) {
-                    error_log("✓ WFO (IP Valid) — IP FIT valid, meskipun di luar radius GPS (" . round($distance) . "m)");
-                    $ketVal = 'wfo'; // Force WFO if IP is valid Telkom University
-                } elseif (!$isInsideTeluByApi && $isInsideRadius) {
-                    error_log("✓ WFO (GPS Valid) — Dalam radius " . round($distance) . "m, meskipun IP bukan jaringan FIT (" . ($publicIp ?: 'EMPTY') . ")");
-                    $ketVal = 'wfo'; // Force WFO if GPS is inside radius
+                    error_log('✓ WFO via IP — IP jaringan TelU valid: ' . $publicIp);
+                } elseif ($isInsideRadius) {
+                    $ketVal = 'wfo';
+                    error_log('✓ WFO via GPS — dalam radius ' . round($distance) . 'm dari gedung FIT (pakai data seluler)');
                 } else {
-                    error_log('✗ WFA — IP bukan FIT DAN di luar radius ' . $wfoRadius . 'm');
+                    if ($distance !== null) {
+                        error_log('✗ WFA — IP bukan TelU DAN GPS ' . round($distance) . 'm di luar radius ' . $effectiveRadius . 'm');
+                    } else {
+                        error_log('✗ WFA — IP bukan TelU DAN GPS tidak tersedia');
+                    }
                 }
                 
                 // Final check — jika WFA, minta alasan dan alihkan ke approval
@@ -1505,11 +1543,11 @@ if (isset($_REQUEST['ajax'])) {
                     if (!$alasanWfa) {
                         $wfaReasons = [];
                         if (!$isInsideTeluByApi) {
-                            $wfaReasons[] = 'IP tidak dikenali sebagai jaringan Fakultas Ilmu Terapan';
+                            $wfaReasons[] = 'IP tidak dikenali sebagai jaringan Telkom University (IP: ' . ($publicIp ?: 'tidak terdeteksi') . ')';
                         }
                         if (!$isInsideRadius) {
-                            $distInfo = $distance !== null ? ' (jarak: ' . round($distance) . 'm, maks: ' . $wfoRadius . 'm)' : ' (GPS tidak tersedia)';
-                            $wfaReasons[] = 'Lokasi di luar radius ' . $wfoRadius . 'm dari gedung FIT' . $distInfo;
+                            $distInfo = $distance !== null ? ' (jarak: ' . round($distance) . 'm, maks: ' . $effectiveRadius . 'm)' : ' (GPS tidak tersedia)';
+                            $wfaReasons[] = 'Lokasi di luar area kampus' . $distInfo;
                         }
                         $wfaMsg = 'Presensi terdeteksi sebagai WFA: ' . implode('; ', $wfaReasons) . '. Harap isi alasan kerja dari luar kantor (WFA).';
                         jsonResponse(['ok' => false, 'need_reason' => true, 'message' => $wfaMsg]);
@@ -3007,6 +3045,7 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
         $maxMonthlyReportMonthsBack = trim($_POST['max_monthly_report_months_back'] ?? '');
         $monthlyReportEndYear = trim($_POST['monthly_report_end_year'] ?? '');
         $faceRecognitionThreshold = trim($_POST['face_recognition_threshold'] ?? '');
+        $faceRecognitionMinConfidence = trim($_POST['face_recognition_min_confidence'] ?? '');
         $faceRecognitionInputSize = trim($_POST['face_recognition_input_size'] ?? '');
         $faceRecognitionScoreThreshold = trim($_POST['face_recognition_score_threshold'] ?? '');
         $faceRecognitionQualityThreshold = trim($_POST['face_recognition_quality_threshold'] ?? '');
@@ -3080,6 +3119,9 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
         // Save face recognition settings
         if ($faceRecognitionThreshold !== '' && is_numeric($faceRecognitionThreshold) && $faceRecognitionThreshold >= 0 && $faceRecognitionThreshold <= 1) {
             setSetting($pdo, 'face_recognition_threshold', $faceRecognitionThreshold);
+        }
+        if ($faceRecognitionMinConfidence !== '' && is_numeric($faceRecognitionMinConfidence) && $faceRecognitionMinConfidence >= 50 && $faceRecognitionMinConfidence <= 100) {
+            setSetting($pdo, 'face_recognition_min_confidence', $faceRecognitionMinConfidence);
         }
         if ($faceRecognitionInputSize !== '' && is_numeric($faceRecognitionInputSize) && $faceRecognitionInputSize >= 224 && $faceRecognitionInputSize <= 640) {
             setSetting($pdo, 'face_recognition_input_size', $faceRecognitionInputSize);
@@ -4166,9 +4208,13 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
             $req = $stmt->fetch();
             
             if (!$req) throw new Exception("Request tidak ditemukan");
-            if ($req['status'] !== 'pending') throw new Exception("Request sudah diproses sebelumnya");
+            
+            // Allow admin to re-process (change status) even if already processed
+            // Only skip attendance side-effects if already approved (to avoid duplicates)
+            $wasAlreadyProcessed = ($req['status'] !== 'pending');
+            $skipAttendanceSideEffects = $wasAlreadyProcessed && ($req['status'] === 'approved' || $req['status'] === 'solved');
 
-            if (($status === 'approved' || $status === 'solved') && $req['request_type'] !== 'bug_report') {
+            if (($status === 'approved' || $status === 'solved') && $req['request_type'] !== 'bug_report' && !$skipAttendanceSideEffects) {
                 if ($req['request_type'] === 'past_attendance') {
                     // Insert into attendance_notes
                     $ins = $pdo->prepare("INSERT INTO attendance_notes (user_id, date, type, keterangan, bukti) VALUES (:u, :d, :t, :k, :b) ON DUPLICATE KEY UPDATE type=VALUES(type), keterangan=VALUES(keterangan), bukti=VALUES(bukti)");

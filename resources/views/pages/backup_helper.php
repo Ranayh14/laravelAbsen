@@ -57,6 +57,7 @@ if (!function_exists('createDatabaseBackup')) {
                 $phpBackup = createDatabaseBackupPHP($pdo);
                 if ($phpBackup['ok']) {
                     file_put_contents($filePath, $phpBackup['sql_content']);
+                    cleanOldBackups($backupDir, $filename);
                     return [
                         'ok' => true,
                         'success' => true,
@@ -76,6 +77,8 @@ if (!function_exists('createDatabaseBackup')) {
             ];
         }
 
+        cleanOldBackups($backupDir, $filename);
+
         return [
             'ok' => true,
             'success' => true,
@@ -84,6 +87,27 @@ if (!function_exists('createDatabaseBackup')) {
             'size' => file_exists($filePath) ? filesize($filePath) : 0,
             'path' => $filePath
         ];
+    }
+}
+
+if (!function_exists('cleanOldBackups')) {
+    function cleanOldBackups($backupDir, $currentFilename) {
+        if (!file_exists($backupDir) || !is_dir($backupDir)) {
+            return;
+        }
+        $files = scandir($backupDir);
+        foreach ($files as $file) {
+            if ($file === '.' || $file === '..') {
+                continue;
+            }
+            $filePath = $backupDir . '/' . $file;
+            if (is_file($filePath) && $file !== $currentFilename) {
+                // Hapus hanya file backup database (berekstensi .sql)
+                if (pathinfo($file, PATHINFO_EXTENSION) === 'sql') {
+                    @unlink($filePath);
+                }
+            }
+        }
     }
 }
 

@@ -69,7 +69,7 @@
             </div>
         </details>
 
-        <!-- Pengaturan Wilayah WFO -->
+        <!-- Pengaturan WFO (Lokasi / API) -->
         <details class="settings-accordion bg-white rounded-2xl sm:rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
             <summary class="p-4 sm:p-6 flex items-center justify-between hover:bg-gray-50 transition-colors">
                 <div class="flex items-center gap-3">
@@ -77,92 +77,127 @@
                         <i class="fi fi-sr-marker text-green-600 text-lg"></i>
                     </div>
                     <div>
-                        <h3 class="text-base sm:text-lg font-bold text-gray-800">Wilayah WFO & Periode</h3>
-                        <p class="text-xs sm:text-sm text-gray-500">Lokasi dan mode deteksi WFO</p>
+                        <h3 class="text-base sm:text-lg font-bold text-gray-800">Pengaturan WFO (Lokasi / API)</h3>
+                        <p class="text-xs sm:text-sm text-gray-500">Pilih mode deteksi WFO (Koordinat GPS / API Jaringan) dan konfigurasi parameternya</p>
                     </div>
                 </div>
                 <i class="fi fi-sr-angle-down accordion-icon text-gray-400 transition-transform duration-300"></i>
             </summary>
             <div class="accordion-content px-4 sm:px-6 pb-4 sm:pb-6 border-t border-gray-100 pt-4 space-y-4">
+                
+                <!-- Mode Deteksi WFO (Selalu Tampil) -->
                 <div>
-                    <label class="block text-xs text-gray-600 mb-1 font-medium">Mode Deteksi WFO</label>
-                    <select id="wfo-mode" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 text-sm">
-                        <option value="api">API (Deteksi via IP/ASN/Organisasi)</option>
-                        <option value="gps">GPS (Deteksi via koordinat)</option>
+                    <label class="block text-xs font-bold text-gray-700 uppercase mb-1">Mode Deteksi WFO</label>
+                    <select id="wfo-mode" onchange="toggleWfoFields()" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 text-sm font-semibold">
+                        <option value="api">API (Deteksi via IP/ASN/Organisasi Jaringan)</option>
+                        <option value="gps">GPS (Deteksi via Koordinat Lokasi)</option>
                     </select>
+                    <p class="text-[11px] text-gray-500 mt-1">
+                        <strong>Mode API:</strong> Verifikasi presensi WFO berdasarkan koneksi internet (IP Publik, ISP/Organisasi, ASN, WiFi). Menghindari masalah akurasi GPS atau fake GPS.<br>
+                        <strong>Mode GPS:</strong> Verifikasi presensi WFO berdasarkan koordinat latitude & longitude perangkat pegawai dengan radius tertentu dari pusat kantor.
+                    </p>
                 </div>
-                <div class="relative">
-                    <label class="block text-xs text-gray-600 mb-1 font-medium">Alamat Pusat WFO</label>
-                    <textarea id="wfo-address" rows="2" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 text-sm" placeholder="Masukkan alamat kantor..."></textarea>
-                    <div id="address-suggestions" class="hidden absolute z-10 w-full bg-white border border-gray-200 rounded-xl shadow-lg mt-1 max-h-60 overflow-y-auto"></div>
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-xs text-gray-600 mb-1 font-medium">Radius WFO (meter) <span class="text-red-500 font-bold">max 50m</span></label>
-                        <input type="number" id="wfo-radius" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 text-sm" value="50" max="50" min="10">
-                    </div>
-                    <div>
-                        <label class="block text-xs text-gray-600 mb-1 font-medium">Periode Selesai</label>
-                        <input type="date" id="attendance-period-end" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 text-sm" value="2026-12-31">
-                    </div>
-                </div>
-            </div>
-        </details>
 
-        <!-- Pengaturan WFO API -->
-        <details class="settings-accordion bg-white rounded-2xl sm:rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
-            <summary class="p-4 sm:p-6 flex items-center justify-between hover:bg-gray-50 transition-colors">
-                <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center">
-                        <i class="fi fi-sr-globe text-indigo-600 text-lg"></i>
-                    </div>
-                    <div>
-                        <h3 class="text-base sm:text-lg font-bold text-gray-800">Pengaturan WFO API</h3>
-                        <p class="text-xs sm:text-sm text-gray-500">Provider API dan konfigurasi jaringan</p>
-                    </div>
-                </div>
-                <i class="fi fi-sr-angle-down accordion-icon text-gray-400 transition-transform duration-300"></i>
-            </summary>
-            <div class="accordion-content px-4 sm:px-6 pb-4 sm:pb-6 border-t border-gray-100 pt-4 space-y-4">
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-xs text-gray-600 mb-1 font-medium">Provider IP API</label>
-                        <select id="wfo-api-provider" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm">
-                            <option value="ipinfo">IPInfo.io</option>
-                            <option value="ipapi">IPAPI.co</option>
-                            <option value="ip-api">IP-API.com</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-xs text-gray-600 mb-1 font-medium">Token API (Opsional)</label>
-                        <input type="text" id="wfo-api-token" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm font-mono" placeholder="Token API">
-                    </div>
-                </div>
+                <!-- Periode Selesai (Selalu Tampil) -->
                 <div>
-                    <label class="block text-xs text-gray-600 mb-1 font-medium">Kata Kunci Organisasi WFO</label>
-                    <textarea id="wfo-api-org-keywords" rows="2" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm font-mono" placeholder="Telkom University, Yayasan Pendidikan Telkom"></textarea>
+                    <label class="block text-xs font-bold text-gray-700 uppercase mb-1">Periode Selesai Absen</label>
+                    <input type="date" id="attendance-period-end" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 text-sm" value="2026-12-31">
+                    <p class="text-[11px] text-gray-500 mt-1">Batas tanggal akhir periode di mana sistem presensi aktif berjalan. Pengisian harus berformat tanggal YYYY-MM-DD. <em>Contoh: 2026-12-31</em></p>
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-xs text-gray-600 mb-1 font-medium">Daftar ASN WFO</label>
-                        <textarea id="wfo-api-asn-list" rows="2" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm font-mono" placeholder="AS7713/57"></textarea>
+
+                <!-- Container Pengaturan Lokasi / GPS -->
+                <div id="wfo-gps-fields" class="space-y-4 border-t border-gray-100 pt-4 hidden">
+                    <h4 class="text-xs font-bold text-green-700 uppercase tracking-wider mb-2">Konfigurasi Mode Lokasi / GPS</h4>
+                    
+                    <div class="relative">
+                        <label class="block text-xs font-semibold text-gray-700 mb-1">Alamat Pusat WFO</label>
+                        <textarea id="wfo-address" rows="2" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 text-sm" placeholder="Masukkan alamat lengkap kantor..."></textarea>
+                        <div id="address-suggestions" class="hidden absolute z-10 w-full bg-white border border-gray-200 rounded-xl shadow-lg mt-1 max-h-60 overflow-y-auto"></div>
+                        <p class="text-[11px] text-gray-500 mt-1">
+                            Alamat fisik pusat kantor untuk presensi WFO. Sistem akan mencari koordinat latitude/longitude secara otomatis berdasarkan alamat yang Anda ketik (pilih saran alamat yang muncul).<br>
+                            <em>Contoh: Fakultas Ilmu Terapan, Jalan Sukabirus, Sukapura, Dayeuhkolot, Kabupaten Bandung, Jawa Barat 40257</em>
+                        </p>
                     </div>
+                    
                     <div>
-                        <label class="block text-xs text-gray-600 mb-1 font-medium">Daftar CIDR WFO</label>
-                        <textarea id="wfo-api-cidr-list" rows="2" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm font-mono" placeholder="103.23.44.0/22"></textarea>
+                        <label class="block text-xs font-semibold text-gray-700 mb-1">Radius WFO (Meter) <span class="text-red-500 font-bold">maks 50m</span></label>
+                        <input type="number" id="wfo-radius" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 text-sm" value="50" max="50" min="10">
+                        <p class="text-[11px] text-gray-500 mt-1">Jarak radius batas toleransi presensi dari koordinat kantor pusat dalam satuan meter. Demi akurasi maksimal, nilai ini dibatasi maksimal 50 meter. <em>Contoh: 50</em></p>
                     </div>
                 </div>
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1 font-medium">SSID WiFi WFO</label>
-                    <input type="text" id="wfo-wifi-ssids" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm" placeholder="Nama WiFi kantor">
-                </div>
-                <button type="button" id="auto-detect-wfo" class="w-full bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-semibold py-2.5 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 text-sm">
-                    <i class="fi fi-sr-refresh"></i> Auto-Detect WFO dari IP Saat Ini
-                </button>
-                <div id="auto-detect-result" class="hidden animate-fade-in p-4 bg-indigo-50 rounded-xl border border-indigo-100 space-y-1">
-                    <p id="detect-ip" class="text-xs text-indigo-700"></p>
-                    <p id="detect-org" class="text-xs text-indigo-700"></p>
-                    <p id="detect-asn" class="text-xs text-indigo-700"></p>
+
+                <!-- Container Pengaturan API Jaringan -->
+                <div id="wfo-api-fields" class="space-y-4 border-t border-gray-100 pt-4 hidden">
+                    <h4 class="text-xs font-bold text-indigo-700 uppercase tracking-wider mb-2">Konfigurasi Mode API Jaringan Internet</h4>
+                    
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">Provider IP API</label>
+                            <select id="wfo-api-provider" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm">
+                                <option value="ipinfo">IPInfo.io</option>
+                                <option value="ipapi">IPAPI.co</option>
+                                <option value="ip-api">IP-API.com</option>
+                            </select>
+                            <p class="text-[11px] text-gray-500 mt-1">Penyedia API penelusuran IP publik perangkat pegawai. Sangat direkomendasikan memilih <strong>IPInfo.io</strong> karena kestabilan datanya. <em>Contoh: IPInfo.io</em></p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">Token API (Opsional)</label>
+                            <input type="text" id="wfo-api-token" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm font-mono" placeholder="Token API Anda...">
+                            <p class="text-[11px] text-gray-500 mt-1">Token otentikasi dari provider terpilih untuk kuota request yang lebih besar atau detail yang lebih lengkap. Kosongkan jika menggunakan paket gratis bawaan. <em>Contoh: 9a8b7c6d5e4f3g</em></p>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-700 mb-1">Kata Kunci Organisasi WFO</label>
+                        <textarea id="wfo-api-org-keywords" rows="2" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm font-mono" placeholder="Telkom University, Yayasan Pendidikan Telkom"></textarea>
+                        <p class="text-[11px] text-gray-500 mt-1">Kata kunci nama perusahaan/kampus ISP/penyedia internet kantor yang dideteksi oleh API jaringan. Pisahkan dengan tanda koma jika ada beberapa. <em>Contoh: Telkom University, Yayasan Pendidikan Telkom, Telkom University Bandung</em></p>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">Daftar ASN WFO</label>
+                            <textarea id="wfo-api-asn-list" rows="2" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm font-mono" placeholder="AS133357"></textarea>
+                            <p class="text-[11px] text-gray-500 mt-1">Daftar Autonomous System Number (ASN) jaringan internet kantor yang valid untuk presensi. Pisahkan dengan koma. <em>Contoh: AS133357, AS17974</em></p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">Daftar CIDR WFO</label>
+                            <textarea id="wfo-api-cidr-list" rows="2" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm font-mono" placeholder="103.23.44.0/22"></textarea>
+                            <p class="text-[11px] text-gray-500 mt-1">Daftar blok/range IP CIDR khusus jaringan kantor (apabila kantor memiliki range IP publik statis sendiri). Pisahkan dengan koma. <em>Contoh: 103.23.44.0/22, 202.158.3.0/24</em></p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">SSID WiFi WFO</label>
+                            <input type="text" id="wfo-wifi-ssids" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm" placeholder="Nama-Nama WiFi kantor...">
+                            <p class="text-[11px] text-gray-500 mt-1">Nama (SSID) jaringan WiFi kantor yang valid. Pegawai harus terhubung ke salah satu WiFi ini. Pisahkan nama dengan tanda koma. <em>Contoh: Telkom University, WiFi-TelU, Eduroam</em></p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">Wajib Menggunakan WiFi Kantor</label>
+                            <select id="wfo-require-wifi" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm">
+                                <option value="1">Ya (Harus terhubung ke SSID WiFi di atas)</option>
+                                <option value="0">Tidak (Boleh menggunakan jaringan kabel/seluler selagi IP terdeteksi sebagai WFO)</option>
+                            </select>
+                            <p class="text-[11px] text-gray-500 mt-1">Jika diset ke "Ya", pegawai wajib melakukan presensi sambil terhubung ke salah satu SSID WiFi kantor yang terdaftar di samping.</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h5 class="text-xs font-bold text-gray-700">Deteksi Jaringan IP Anda Saat Ini</h5>
+                                <p class="text-[10px] text-gray-500">Gunakan tombol ini untuk mendeteksi informasi jaringan Anda saat ini secara otomatis.</p>
+                            </div>
+                            <button type="button" id="auto-detect-wfo" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 text-xs">
+                                <i class="fi fi-sr-refresh"></i> Auto-Detect Jaringan
+                            </button>
+                        </div>
+                        <div id="auto-detect-result" class="hidden animate-fade-in p-3 bg-white rounded-lg border border-gray-200 space-y-1">
+                            <p id="detect-ip" class="text-xs text-indigo-700 font-mono"></p>
+                            <p id="detect-org" class="text-xs text-indigo-700 font-mono"></p>
+                            <p id="detect-asn" class="text-xs text-indigo-700 font-mono"></p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </details>
@@ -250,11 +285,16 @@
                 <i class="fi fi-sr-angle-down accordion-icon text-gray-400 transition-transform duration-300"></i>
             </summary>
             <div class="accordion-content px-4 sm:px-6 pb-4 sm:pb-6 border-t border-gray-100 pt-4">
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     <div>
                         <label class="block text-xs text-gray-600 mb-1 font-medium">Threshold Recognition</label>
                         <input type="number" id="face-recognition-threshold" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 text-sm" value="0.58" step="0.01" min="0" max="1">
                         <p class="text-[10px] text-gray-500 mt-1">Batas kemiripan wajah (Makin kecil = makin ketat/sulit dikenali). Standar: 0.40 - 0.50.</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-600 mb-1 font-medium">Minimum Keyakinan Wajah (%)</label>
+                        <input type="number" id="face-recognition-min-confidence" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 text-sm" value="65" step="1" min="50" max="100">
+                        <p class="text-[10px] text-gray-500 mt-1">Persentase keyakinan/kemiripan minimum agar presensi diterima (default: 65%). Di bawah nilai ini akan ditolak.</p>
                     </div>
                     <div>
                         <label class="block text-xs text-gray-600 mb-1 font-medium">Ukuran Input</label>
@@ -269,7 +309,7 @@
                     <div>
                         <label class="block text-xs text-gray-600 mb-1 font-medium">Quality Threshold</label>
                         <input type="number" id="face-recognition-quality-threshold" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 text-sm" value="0.65" step="0.01" min="0" max="1">
-                        <p class="text-[10px] text-gray-500 mt-1">Kualitas posisi & cahaya. (Makin besar = harus terang dan di tengah). Standar: 0.20.</p>
+                        <p class="text-[10px] text-gray-500 mt-1">Kualitas posisi &amp; cahaya. (Makin besar = harus terang dan di tengah). Standar: 0.20.</p>
                     </div>
                 </div>
             </div>
@@ -456,6 +496,23 @@
 </div>
 
 <script>
+function toggleWfoFields() {
+    const mode = document.getElementById('wfo-mode')?.value || 'api';
+    const gpsFields = document.getElementById('wfo-gps-fields');
+    const apiFields = document.getElementById('wfo-api-fields');
+    
+    if (mode === 'gps') {
+        gpsFields?.classList.remove('hidden');
+        apiFields?.classList.add('hidden');
+    } else {
+        gpsFields?.classList.add('hidden');
+        apiFields?.classList.remove('hidden');
+    }
+}
+
+// Initial toggle when settings.blade.php script runs
+setTimeout(toggleWfoFields, 100);
+
 async function handleSaveSettings(btn) {
     const confirmed = await customConfirm('Simpan perubahan pengaturan?', 'Konfirmasi Simpan');
     if(!confirmed) return;
@@ -468,10 +525,9 @@ async function handleSaveSettings(btn) {
         const getValue = (id) => document.getElementById(id)?.value || '';
         const getHour = (id) => (getValue(id).split(':')[0] || '');
 
-        // Collect data manually to ensure no dependency on other scripts
+        // Collect all settings as POST data to the ajax_handler endpoint
         const data = new URLSearchParams();
         data.append('ajax', 'update_settings');
-        // ... (collecting other fields) ...
         data.append('max_ontime_hour', getHour('max-ontime-hour'));
         data.append('min_checkout_hour', getHour('min-checkout-hour'));
         data.append('wfo_address', getValue('wfo-address'));
@@ -486,6 +542,7 @@ async function handleSaveSettings(btn) {
         data.append('max_monthly_report_months_back', getValue('max-monthly-report-months-back'));
         data.append('monthly_report_end_year', getValue('monthly-report-end-year'));
         data.append('face_recognition_threshold', getValue('face-recognition-threshold'));
+        data.append('face_recognition_min_confidence', getValue('face-recognition-min-confidence'));
         data.append('face_recognition_input_size', getValue('face-recognition-input-size'));
         data.append('face_recognition_score_threshold', getValue('face-recognition-score-threshold'));
         data.append('face_recognition_quality_threshold', getValue('face-recognition-quality-threshold'));
@@ -505,18 +562,22 @@ async function handleSaveSettings(btn) {
         data.append('wfo_wifi_ssids', getValue('wfo-wifi-ssids'));
         data.append('wfo_require_wifi', getValue('wfo-require-wifi'));
 
-        // Use global selectedAddress if available
+        // Use global selectedAddress coordinates if available (from address search)
         if (window.selectedAddress && window.selectedAddress.lat) {
             data.append('wfo_lat', window.selectedAddress.lat);
             data.append('wfo_lng', window.selectedAddress.lon);
         }
 
-        const json = await api('settings', data, {
-            method: 'PUT'
+        // POST to ajax_handler (NOT to Laravel API route which requires setting_key)
+        const resp = await fetch('?ajax=update_settings', {
+            method: 'POST',
+            body: data,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
         });
+        const json = await resp.json();
         
         if (json.ok) {
-            if (typeof showNotif === 'function') showNotif('Pengaturan berhasil disimpan', true);
+            if (typeof showNotif === 'function') showNotif('Pengaturan berhasil disimpan! ✓', true);
             else customAlert('Pengaturan berhasil disimpan', 'Berhasil');
         } else {
             if (typeof showNotif === 'function') showNotif(json.message || 'Gagal menyimpan', false);
@@ -524,7 +585,7 @@ async function handleSaveSettings(btn) {
         }
     } catch (err) {
         console.error('[CRITICAL] Save error:', err);
-        customAlert('Terjadi kesalahan sistem: ' + err.message, 'Error');
+        if (typeof customAlert === 'function') customAlert('Terjadi kesalahan sistem: ' + err.message, 'Error');
     } finally {
         btn.disabled = false;
         btn.innerHTML = originalText;

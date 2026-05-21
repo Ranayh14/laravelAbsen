@@ -363,8 +363,16 @@
             const file = input.files[0];
             if (!file) return;
 
+            const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png'];
+            if (!allowedTypes.includes(file.type)) {
+                showNotif('❌ Format foto tidak didukung. Gunakan JPG atau PNG.', false);
+                input.value = '';
+                return;
+            }
+
             if (file.size > 2 * 1024 * 1024) {
-                showNotif('Ukuran file terlalu besar. Maksimal 2MB.', false);
+                const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+                showNotif(`❌ Foto terlalu besar (${sizeMB}MB). Ukuran maksimal 2MB. Silakan kompres foto terlebih dahulu.`, false);
                 input.value = '';
                 return;
             }

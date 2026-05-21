@@ -244,13 +244,30 @@ window.initializeFaceRecognition = async function() {
                 }
             })().catch(e => console.warn('Pre-warm failed silently:', e));
         }
-        // Don't await — let it run in background while user reads the page
+        
+        // BACKGROUND PRELOAD: Load descriptors + build faceMatcher BEFORE user clicks
+        // This eliminates the "Menunggu data..." delay entirely
+        window._preWarmReady.then(async () => {
+            try {
+                if (labeledFaceDescriptors.length === 0) {
+                    console.log('📋 Background preloading face descriptors...');
+                    await loadLabeledFaceDescriptors();
+                }
+                if (labeledFaceDescriptors.length > 0 && !faceMatcher) {
+                    faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.5);
+                    console.log(`✅ FaceMatcher prebuilt with ${labeledFaceDescriptors.length} members — scan will be instant!`);
+                }
+            } catch (e) {
+                console.warn('Background descriptor preload failed:', e);
+            }
+        });
         
         console.log('✅ Face recognition system pre-warm started');
     } catch (error) {
         console.error('❌ Failed to initialize face recognition:', error);
     }
 };
+
 
 // Supporting functions for face recognition
 window.fetchMembers = async function() {
@@ -264,6 +281,20 @@ window.fetchMembers = async function() {
 };
 
 window.loadLabeledFaceDescriptors = async function() {
+    // Guard: prevent concurrent calls
+    if (window._loadingDescriptors) {
+        console.log('⏳ Descriptor load already in progress, waiting...');
+        while (window._loadingDescriptors) {
+            await new Promise(r => setTimeout(r, 100));
+        }
+        return;
+    }
+    if (labeledFaceDescriptors.length > 0 && faceMatcher) {
+        return; // Already fully loaded, skip
+    }
+    window._loadingDescriptors = true;
+    
+    try {
     const membersList = await fetchMembers();
 
     // CRITICAL: Always populate the global members array for name lookup
@@ -276,14 +307,17 @@ window.loadLabeledFaceDescriptors = async function() {
     const versionKey = typeof computeMembersVersionKey === 'function' ? await computeMembersVersionKey(membersList) : null;
     if (versionKey && typeof idbGetDescriptors === 'function') {
         const cached = await idbGetDescriptors(versionKey);
+
         if (cached && Array.isArray(cached) && cached.length > 0) {
             labeledFaceDescriptors = cached.map(item => new faceapi.LabeledFaceDescriptors(
                 item.label,
                 item.descriptors.map(d => new Float32Array(d))
             ));
             console.log('✅ Loaded face descriptors from IDB cache:', labeledFaceDescriptors.length, '| members:', membersList.length);
+            window._loadingDescriptors = false;
             return;
         }
+
     }
 
     // --- Medium path: Use pre-computed face_embedding from server DB (fast, no image loading) ---
@@ -349,6 +383,11 @@ window.loadLabeledFaceDescriptors = async function() {
     }
 
     console.log('✅ Total face descriptors loaded:', labeledFaceDescriptors.length);
+    } catch(e) {
+        console.error('loadLabeledFaceDescriptors failed:', e);
+    } finally {
+        window._loadingDescriptors = false;
+    }
 };
 
 
@@ -1175,14 +1214,18 @@ if (regPhotoFileInput) {
         const file = e.target.files[0];
         if (file) {
             // Validate file type
-            if (!file.type.startsWith('image/')) {
-                showNotif('File harus berupa gambar', false);
+            const allowedReg = ['image/jpeg', 'image/jpg', 'image/png'];
+            if (!allowedReg.includes(file.type)) {
+                showNotif('❌ Format foto tidak didukung. Gunakan JPG atau PNG.', false);
+                e.target.value = '';
                 return;
             }
             
-            // Validate file size (max 5MB)
+            // Validate file size (max 5MB untuk registrasi)
             if (file.size > 5 * 1024 * 1024) {
-                showNotif('Ukuran file maksimal 5MB', false);
+                const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+                showNotif(`❌ Foto terlalu besar (${sizeMB}MB). Ukuran maksimal 5MB. Silakan kompres foto terlebih dahulu.`, false);
+                e.target.value = '';
                 return;
             }
             
@@ -1640,6 +1683,10 @@ async function loadFaceRecognitionSettings() {
             if (settings.face_recognition_threshold?.value) {
                 detectionConfig.faceMatcherThreshold = parseFloat(settings.face_recognition_threshold.value) || 0.38;
                 detectionConfig.recognitionThreshold = parseFloat(settings.face_recognition_threshold.value) || 0.38;
+            }
+            if (settings.face_recognition_min_confidence?.value) {
+                detectionConfig.minConfidencePercent = parseFloat(settings.face_recognition_min_confidence.value) || 65;
+                console.log(`[Settings] Min confidence loaded: ${detectionConfig.minConfidencePercent}%`);
             }
             if (settings.face_recognition_input_size?.value) {
                 detectionConfig.inputSize = parseInt(settings.face_recognition_input_size.value) || 416;
@@ -5536,6 +5583,21 @@ btnUploadPhoto && btnUploadPhoto.addEventListener('click', ()=>{
 photoFileInput && photoFileInput.addEventListener('change', (e)=>{
     const file = e.target.files[0];
     if (file) {
+        // Validasi tipe file
+        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png'];
+        if (!allowedTypes.includes(file.type)) {
+            showNotif('❌ Format foto tidak didukung. Gunakan JPG atau PNG.', false);
+            e.target.value = '';
+            return;
+        }
+        // Validasi ukuran file (maks 2MB)
+        const maxSizeMB = 2;
+        if (file.size > maxSizeMB * 1024 * 1024) {
+            const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1);
+            showNotif(`❌ Foto terlalu besar (${fileSizeMB}MB). Ukuran maksimal ${maxSizeMB}MB. Silakan kompres foto terlebih dahulu.`, false);
+            e.target.value = '';
+            return;
+        }
         const reader = new FileReader();
         reader.onload = (e) => {
             const dataUrl = e.target.result;
@@ -9335,6 +9397,7 @@ async function renderSettings() {
             if(qs('#max-monthly-report-months-back')) qs('#max-monthly-report-months-back').value = settings.max_monthly_report_months_back?.value || '999';
             if(qs('#monthly-report-end-year')) qs('#monthly-report-end-year').value = settings.monthly_report_end_year?.value || '2026';
             if(qs('#face-recognition-threshold')) qs('#face-recognition-threshold').value = settings.face_recognition_threshold?.value || '0.38';
+            if(qs('#face-recognition-min-confidence')) qs('#face-recognition-min-confidence').value = settings.face_recognition_min_confidence?.value || '65';
             if(qs('#face-recognition-input-size')) qs('#face-recognition-input-size').value = settings.face_recognition_input_size?.value || '416';
             if(qs('#face-recognition-score-threshold')) qs('#face-recognition-score-threshold').value = settings.face_recognition_score_threshold?.value || '0.35';
             if(qs('#face-recognition-quality-threshold')) qs('#face-recognition-quality-threshold').value = settings.face_recognition_quality_threshold?.value || '0.55';
@@ -9353,6 +9416,11 @@ async function renderSettings() {
             if(qs('#wfo-api-cidr-list')) qs('#wfo-api-cidr-list').value = settings.wfo_api_cidr_list?.value || '';
             if(qs('#wfo-wifi-ssids')) qs('#wfo-wifi-ssids').value = settings.wfo_wifi_ssids?.value || 'Telkom University,TelU,WiFi Telkom University';
             if(qs('#wfo-require-wifi')) qs('#wfo-require-wifi').value = settings.wfo_require_wifi?.value || '1';
+            
+            // Trigger toggle to show relevant fields
+            if (typeof toggleWfoFields === 'function') {
+                toggleWfoFields();
+            }
         }
     } catch (error) {
         console.error('Error loading settings:', error);
@@ -11370,25 +11438,30 @@ qs('#work-schedule-save') && qs('#work-schedule-save').addEventListener('click',
 
             <div>
                 <h4 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Catatan Admin</h4>
-                <textarea id="admin-req-note" class="w-full p-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 text-sm" rows="3" placeholder="Tulis catatan persetujuan atau penolakan..." ${item.status !== 'pending' ? 'readonly' : ''}>${item.admin_note || ''}</textarea>
+                <textarea id="admin-req-note" class="w-full p-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 text-sm" rows="3" placeholder="Tulis catatan persetujuan atau penolakan...">${item.admin_note || ''}</textarea>
             </div>
         `;
 
         body.innerHTML = content;
 
-        if (item.status === 'pending') {
-            if (item.request_type === 'bug_report') {
-                footer.innerHTML = `
-                    <button id="close-detail-btn" class="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl hover:bg-gray-200 transition-all">Tutup</button>
-                    <button onclick="handleRequest(${item.id}, 'disapproved')" class="flex-[1.5] py-3 bg-white border border-red-100 text-red-600 font-bold rounded-2xl hover:bg-red-50 transition-all flex items-center justify-center gap-2">
-                        <i class="fi fi-sr-cross-circle"></i> Abaikan
-                    </button>
-                    <button onclick="handleRequest(${item.id}, 'solved')" class="flex-[1.5] py-3 bg-emerald-600 text-white font-bold rounded-2xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 flex items-center justify-center gap-2">
-                        <i class="fi fi-sr-check-circle"></i> Solved
-                    </button>
-                `;
-            } else {
-                footer.innerHTML = `
+        if (item.request_type === 'bug_report') {
+            footer.innerHTML = `
+                <button id="close-detail-btn" class="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl hover:bg-gray-200 transition-all">Tutup</button>
+                <button onclick="handleRequest(${item.id}, 'disapproved')" class="flex-[1.5] py-3 bg-white border border-red-100 text-red-600 font-bold rounded-2xl hover:bg-red-50 transition-all flex items-center justify-center gap-2">
+                    <i class="fi fi-sr-cross-circle"></i> Abaikan
+                </button>
+                <button onclick="handleRequest(${item.id}, 'solved')" class="flex-[1.5] py-3 bg-emerald-600 text-white font-bold rounded-2xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 flex items-center justify-center gap-2">
+                    <i class="fi fi-sr-check-circle"></i> Selesai
+                </button>
+            `;
+        } else {
+            // Show action buttons always (admin can change status even after approved/rejected)
+            const statusNote = item.status !== 'pending'
+                ? `<p class="text-[10px] text-amber-600 font-semibold mb-2 flex items-center gap-1"><i class="fi fi-sr-triangle-warning"></i> Status saat ini: ${getRequestStatusLabel(item.status, item.request_type)} — Anda dapat mengubah status.</p>`
+                : '';
+            footer.innerHTML = `
+                ${statusNote}
+                <div class="flex gap-3 w-full">
                     <button id="close-detail-btn" class="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl hover:bg-gray-200 transition-all">Tutup</button>
                     <button onclick="handleRequest(${item.id}, 'disapproved')" class="flex-[1.5] py-3 bg-white border border-red-100 text-red-600 font-bold rounded-2xl hover:bg-red-50 transition-all flex items-center justify-center gap-2">
                         <i class="fi fi-sr-cross-circle"></i> Tolak
@@ -11396,11 +11469,7 @@ qs('#work-schedule-save') && qs('#work-schedule-save').addEventListener('click',
                     <button onclick="handleRequest(${item.id}, 'approved')" class="flex-[1.5] py-3 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 flex items-center justify-center gap-2">
                         <i class="fi fi-sr-check-circle"></i> Setujui
                     </button>
-                `;
-            }
-        } else {
-            footer.innerHTML = `
-                <button id="close-detail-btn" class="w-full py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl hover:bg-gray-200 transition-all">Tutup</button>
+                </div>
             `;
         }
 
@@ -11426,19 +11495,24 @@ qs('#work-schedule-save') && qs('#work-schedule-save').addEventListener('click',
     window.handleRequest = async function(id, action) {
         const note = qs('#admin-req-note')?.value || '';
         if (action === 'disapproved' && !note.trim()) {
-            showNotif('Mohon berikan catatan alasan penolakan', false);
+            showNotif('Mohon berikan catatan alasan penolakan terlebih dahulu.', false);
+            qs('#admin-req-note')?.focus();
             return;
         }
+
+        const actionLabel = action === 'approved' ? 'disetujui' : action === 'solved' ? 'diselesaikan' : 'ditolak';
 
         try {
             const res = await api('?ajax=admin_handle_help_request', { id, status: action, note });
             if (res.ok) {
-                showNotif(`Permintaan berhasil ${action === 'approved' ? 'disetujui' : 'ditolak'}`);
+                showNotif(`✅ Permintaan berhasil ${actionLabel}.`);
                 qs('#request-detail-modal').classList.add('hidden');
                 loadAllHelpRequests();
                 loadAdminNotifications();
+            } else {
+                showNotif(res.message || 'Gagal memproses permintaan', false);
             }
-        } catch (e) { showNotif('Gagal memproses permintaan', false); }
+        } catch (e) { showNotif('Gagal memproses permintaan: ' + e.message, false); }
     }
 
     function renderRequestTypeDetails(item) {
@@ -11466,10 +11540,21 @@ qs('#work-schedule-save') && qs('#work-schedule-save').addEventListener('click',
                 ` : ''}
             `;
         } else if (item.request_type === 'late_attendance') {
+            const tipeLabel = item.attendance_type === 'wfa' ? 'Work From Anywhere (WFA)'
+                           : item.attendance_type === 'overtime' ? 'Lembur (Overtime)'
+                           : 'Work From Office (WFO)';
             return `
                 <div class="mb-4 pb-4 border-b border-gray-50">
-                    <p class="text-xs text-gray-400 mb-1">Tanggal Request</p>
-                    <p class="text-sm font-bold text-gray-800">${item.tanggal ? formatDate(item.tanggal) : '-'}</p>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <p class="text-xs text-gray-400 mb-1">Tanggal Request</p>
+                            <p class="text-sm font-bold text-gray-800">${item.tanggal ? formatDate(item.tanggal) : '-'}</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-400 mb-1">Tipe Presensi</p>
+                            <p class="text-sm font-bold text-indigo-700">${tipeLabel}</p>
+                        </div>
+                    </div>
                 </div>
                 <div class="grid grid-cols-2 gap-4">
                     <div>
@@ -11481,13 +11566,19 @@ qs('#work-schedule-save') && qs('#work-schedule-save').addEventListener('click',
                         <p class="text-sm font-bold text-gray-800">${item.jam_pulang ? item.jam_pulang.substring(0,5) : '-'}</p>
                     </div>
                 </div>
+                ${(item.attendance_reason) ? `
+                    <div>
+                        <p class="text-xs text-gray-400 mb-1">Alasan ${item.attendance_type === 'overtime' ? 'Overtime' : 'WFA'}</p>
+                        <p class="text-sm text-gray-700 bg-indigo-50 p-3 rounded-xl italic">${item.attendance_reason}</p>
+                    </div>
+                ` : ''}
                 <div>
-                    <p class="text-xs text-gray-400 mb-1">Lokasi Verifikasi</p>
+                    <p class="text-xs text-gray-400 mb-1">Lokasi Verifikasi <span class="text-green-600">(otomatis dari GPS)</span></p>
                     <p class="text-xs text-gray-700 italic">${item.lokasi_presensi || '-'}</p>
                 </div>
                 ${item.bukti_presensi ? `
                     <div>
-                        <p class="text-xs text-gray-400 mb-2">Wajah Verifikasi</p>
+                        <p class="text-xs text-gray-400 mb-2">Bukti Wajah</p>
                         <img src="${item.bukti_presensi}" class="w-full h-48 object-cover rounded-2xl cursor-pointer hover:opacity-90 transition-opacity" onclick="showScreenshotModal('${item.bukti_presensi}', 'Verifikasi Wajah')">
                     </div>
                 ` : ''}

@@ -45,7 +45,27 @@ const detectionConfig = {
     detectionThrottle: 100,
     strictMode: true,
     multiAttemptValidation: true,
-    genderValidation: true
+    genderValidation: true,
+    minConfidencePercent: 65 // Minimum confidence % required to accept (loaded from settings)
+};
+
+// ---- Liveness Detection State ----
+const livenessState = {
+    blinkCount: 0,
+    earHistory: [],
+    baselineEar: null,
+    blinkThreshold: 0.75,     // Ratio: blink if earAvg < baseline * 0.75
+    absoluteThreshold: 0.22,  // Used BEFORE calibration is done
+    minBlinksRequired: 1,
+    isBlinking: false,
+    consecutiveBlinkFrames: 0,
+    minBlinkFrames: 1,
+    livenessConfirmed: false,
+    totalFrames: 0,
+    consecutiveRecognitionFrames: 0,
+    autoConfirmAfterFrames: 3, // Only 3 recognition frames needed (~1-2s max)
+    nullFramesDuringBlink: 0,
+    calibrationFrames: 3       // Only 3 frames to calibrate EAR baseline
 };
 
 const performanceStats = {
@@ -123,18 +143,30 @@ async function initializeFaceRecognition() {
         } catch (e) {
             console.warn('WebGL failed, using CPU:', e);
             await faceapi.tf.setBackend('cpu');
+            await faceapi.tf.ready();
         }
 
         // Initialize listeners once
         initAttendanceListeners();
         
-        // Don't await everything on load to keep page responsive
-        // Set backend early for better performance
-        if (faceapi.tf.getBackend() !== 'webgl') {
-            faceapi.tf.setBackend('webgl').catch(() => faceapi.tf.setBackend('cpu'));
-        }
-        
-        loadFaceApiModels().catch(e => console.error('Delayed model load failed:', e));
+        // Load models then immediately preload descriptors in background
+        // so when user clicks scan button, everything is already ready
+        loadFaceApiModels()
+            .then(() => {
+                // After models ready, preload face descriptors silently in background
+                if (labeledFaceDescriptors.length === 0) {
+                    console.log('📋 Preloading face descriptors in background...');
+                    return loadLabeledFaceDescriptors();
+                }
+            })
+            .then(() => {
+                // Build faceMatcher immediately after descriptors load
+                if (labeledFaceDescriptors.length > 0 && !faceMatcher) {
+                    faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.5);
+                    console.log(`✅ FaceMatcher prebuilt with ${labeledFaceDescriptors.length} members — scan will be instant!`);
+                }
+            })
+            .catch(e => console.error('Background preload failed:', e));
         
         console.log('Face recognition system initialized');
     } catch (error) {
@@ -187,6 +219,20 @@ async function loadFaceApiModels() {
 async function loadLabeledFaceDescriptors() {
     if (typeof api !== 'function') return;
     
+    // Guard: prevent concurrent calls
+    if (window._loadingDescriptors) {
+        console.log('⏳ Descriptor load already in progress, waiting...');
+        while (window._loadingDescriptors) {
+            await new Promise(r => setTimeout(r, 100));
+        }
+        return; // Already loaded by the concurrent call
+    }
+    if (labeledFaceDescriptors.length > 0 && faceMatcher) {
+        return; // Already fully loaded
+    }
+    
+    window._loadingDescriptors = true;
+    
     const urlParams = new URLSearchParams(window.location.search);
     const mode = urlParams.get('mode');
     const isLateReq = mode === 'late_req';
@@ -217,7 +263,13 @@ async function loadLabeledFaceDescriptors() {
                 });
             }
             membersToProcess = members;
-        }        if (membersToProcess.length === 0) return;
+        }
+
+        if (membersToProcess.length === 0) {
+            window._loadingDescriptors = false;
+            return;
+        }
+
 
         // CRITICAL: Aggressive Parallel Loading (< 5s for 17 members)
         statusMessage('Mengoptimalkan sistem (Hanya sekali)...', 'bg-blue-100 text-blue-700');
@@ -258,7 +310,7 @@ async function loadLabeledFaceDescriptors() {
 
         const results = await Promise.all(promises);
         labeledFaceDescriptors = results.filter(r => r !== null);
-               if (labeledFaceDescriptors.length > 0) {
+        if (labeledFaceDescriptors.length > 0) {
             faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.5);
         }
         
@@ -274,8 +326,12 @@ async function loadLabeledFaceDescriptors() {
         console.log(`Loaded ${labeledFaceDescriptors.length} descriptors in ${(performance.now() - startTime).toFixed(2)}ms`);
     } catch (e) {
         console.error('Descriptor load failed:', e);
+    } finally {
+        window._loadingDescriptors = false;
     }
 }
+
+
 
 
 // ---- Camera & Recognition Logic ----
@@ -287,7 +343,8 @@ async function startScan(mode) {
     isDetectionPaused = false;
     isProcessingRecognition = false;
     currentRecognitionData = null;
-    faceMatcher = null;
+    resetLiveness(); // Reset blink counter for each new scan
+    // NOTE: Do NOT null faceMatcher here — keep it if descriptors already loaded
     
     // Show UI immediately
     if (scanButtonsContainer) scanButtonsContainer.classList.add('hidden');
@@ -309,30 +366,40 @@ async function startScan(mode) {
         loadLogPulang();
     }
 
-    statusMessage('Menghubungkan kamera...', 'bg-blue-100 text-blue-700');
+    // FAST PATH: If faceMatcher already ready from previous session, start immediately
+    if (faceMatcher && labeledFaceDescriptors.length > 0) {
+        statusMessage('Sistem siap! Arahkan wajah ke kamera.', 'bg-green-100 text-green-700');
+        // Start camera, then begin detection loop after camera is ready
+        await startVideo();
+        startVideoInterval();
+        return;
+    }
+
 
     statusMessage('Menginisialisasi sistem...', 'bg-blue-100 text-blue-700');
 
-    // PARALLEL: Start camera and load models
-    const preWarmPromise = window._preWarmReady || Promise.resolve();
-    
-    await Promise.allSettled([
-        startVideo(),
-        preWarmPromise,
-        (async () => {
-            if (!window.faceApiModelsLoaded) {
-                console.log('🚀 Loading Face API models...');
-                await loadFaceApiModels();
-            }
-        })()
-    ]);
+    // Start camera immediately (parallel with everything else)
+    const cameraPromise = startVideo();
 
-    // BLOCKING LOAD: Ensure system is REALLY ready before showing "Sistem Siap"
+    // Ensure models are loaded
+    if (!window.faceApiModelsLoaded) {
+        statusMessage('Memuat model AI...', 'bg-blue-100 text-blue-700');
+        await loadFaceApiModels();
+    }
+
+    // Wait for camera
+    await cameraPromise;
+
+    // Load descriptors if needed
     if (labeledFaceDescriptors.length === 0) {
-        statusMessage('Menganalisis sistem wajah...', 'bg-blue-100 text-blue-700');
+        statusMessage('Memuat data wajah...', 'bg-blue-100 text-blue-700');
         await loadLabeledFaceDescriptors();
-    } else if (!faceMatcher) {
+    }
+    
+    // Build faceMatcher if not yet built
+    if (!faceMatcher && labeledFaceDescriptors.length > 0) {
         faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.5);
+        console.log(`✅ FaceMatcher built with ${labeledFaceDescriptors.length} descriptors`);
     }
 
     statusMessage('Sistem siap! Arahkan wajah ke kamera.', 'bg-green-100 text-green-700');
@@ -413,22 +480,24 @@ function resetPresensiPage() {
 let _detectionRunning = false; // Prevent concurrent async detection calls
 let lastRecognitionLabel = 'Posisikan wajah...';
 let lastRecognitionColor = '#3b82f6';
+let _frameCount = 0; // For throttling descriptor computation
+let _lastDescriptor = null; // Cached descriptor from last recognition pass
+let _lastRecognitionMatch = null; // Cached recognition result
 
 function startVideoInterval() {
     if (!isCameraActive || videoInterval || !video) return;
 
-    // Use recursive setTimeout instead of setInterval to prevent async stacking
-    // This means: wait for one detection to FINISH before scheduling the next
-    const detectionDelay = 250; // ms between detection cycles
+    const detectionDelay = 80; // ms — fast enough to catch blinks
 
     async function detectionLoop() {
-        if (isDetectionStopped || !isCameraActive) return; // Stop loop
-        if (videoInterval === null) return; // stopVideo was called
+        if (isDetectionStopped || !isCameraActive) return;
+        if (videoInterval === null) return;
 
         if (!isPresensiSuccess && !isProcessingRecognition && !isDetectionPaused && !_detectionRunning) {
             _detectionRunning = true;
+            _frameCount++;
             try {
-                if (video.readyState < 2) { // Camera not fully ready yet
+                if (video.readyState < 2) {
                     _detectionRunning = false;
                     videoInterval = setTimeout(detectionLoop, detectionDelay);
                     return;
@@ -443,61 +512,187 @@ function startVideoInterval() {
 
                 faceapi.matchDimensions(canvas, displaySize);
 
-                const detection = await faceapi.detectSingleFace(
-                    video,
-                    new faceapi.TinyFaceDetectorOptions({
-                        inputSize: 224, // Smaller = MUCH faster on low-end devices
-                        scoreThreshold: 0.5
-                    })
-                ).withFaceLandmarks().withFaceDescriptor();
+                // ===================================================================
+                // FAST PATH: Detect face + landmarks ONLY (no descriptor)
+                // ~2x faster than full detection — used for liveness + bounding box
+                // ===================================================================
+                const runFullRecognition = faceMatcher && (
+                    !livenessState.livenessConfirmed
+                        ? (_frameCount % 3 === 0)   // Every 3rd frame before liveness
+                        : true                       // Every frame after liveness confirmed (to trigger handleRecognition fast)
+                );
+
+                let detection;
+                if (runFullRecognition) {
+                    // Full pass: detector + landmarks + descriptor (slower, for recognition)
+                    detection = await faceapi.detectSingleFace(
+                        video,
+                        new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.4 })
+                    ).withFaceLandmarks().withFaceDescriptor();
+                    if (detection) {
+                        _lastDescriptor = detection.descriptor;
+                    }
+                } else {
+                    // Lightweight pass: detector + landmarks ONLY (for liveness + drawing)
+                    const lightDetection = await faceapi.detectSingleFace(
+                        video,
+                        new faceapi.TinyFaceDetectorOptions({ inputSize: 128, scoreThreshold: 0.4 })
+                    ).withFaceLandmarks();
+
+                    // Wrap into compatible shape (no descriptor)
+                    detection = lightDetection ? {
+                        ...lightDetection,
+                        descriptor: _lastDescriptor // reuse last known descriptor
+                    } : null;
+                }
 
                 const ctx = canvas.getContext('2d');
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
 
                 if (detection) {
-                    // Simpan deteksi terakhir untuk ekstraksi landmark saat presensi
                     window.lastDetectionForLandmark = detection;
-                    const resized = faceapi.resizeResults(detection, displaySize);
+                    const resized = faceapi.resizeResults(
+                        { detection: detection.detection, landmarks: detection.landmarks },
+                        displaySize
+                    );
                     const box = resized.detection.box;
                     const mirroredX = displaySize.width - box.x - box.width;
 
-                    // INSTANT LOCAL IDENTIFICATION
-                    if (faceMatcher && !isDetectionPaused) {
-                        const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
-                        
-                        if (bestMatch.label !== 'unknown' && bestMatch.distance < 0.5) {
-                            const matchedMember = members.find(m => {
-                                return String(m.nim || '') === String(bestMatch.label) ||
-                                       String(m.nama || '') === String(bestMatch.label) ||
-                                       String(m.id || '') === String(bestMatch.label);
-                            });
-                            
-                            lastRecognitionLabel = (matchedMember ? matchedMember.nama : bestMatch.label) + ` (${Math.round((1 - bestMatch.distance) * 100)}%)`;
-                            lastRecognitionColor = '#22c55e'; // Green
-                            handleRecognition(matchedMember ? (matchedMember.id || matchedMember[0]) : bestMatch.label, 'neutral');
-                        } else {
-                            lastRecognitionLabel = 'Wajah tidak dikenal';
-                            lastRecognitionColor = '#ef4444'; // Red
+                    // Resolve null-frame blink when face reappears
+                    if (livenessState.nullFramesDuringBlink > 0) {
+                        if (livenessState.isBlinking) {
+                            livenessState.isBlinking = false;
+                            livenessState.blinkCount++;
+                            if (livenessState.blinkCount >= livenessState.minBlinksRequired) {
+                                livenessState.livenessConfirmed = true;
+                                console.log(`✅ Liveness confirmed (null-frame blink)`);
+                            }
                         }
-                    } else if (!faceMatcher) {
-                        lastRecognitionLabel = 'Menunggu data...';
+                        livenessState.nullFramesDuringBlink = 0;
                     }
 
-                    // DRAWING SECTION
+                    // === LIVENESS CHECK (EAR) — runs every frame ===
+                    if (!livenessState.livenessConfirmed && detection.landmarks) {
+                        const lm = detection.landmarks.positions;
+                        if (lm && lm.length >= 48) {
+                            const earLeft = calcEAR(lm.slice(36, 42));
+                            const earRight = calcEAR(lm.slice(42, 48));
+                            const earAvg = (earLeft + earRight) / 2;
+
+                            // Fast calibration: 3 frames
+                            if (livenessState.earHistory.length < livenessState.calibrationFrames) {
+                                if (earAvg > 0.15) livenessState.earHistory.push(earAvg);
+                            } else if (!livenessState.baselineEar && livenessState.earHistory.length > 0) {
+                                const sorted = [...livenessState.earHistory].sort((a,b) => a-b);
+                                livenessState.baselineEar = sorted[Math.floor(sorted.length / 2)];
+                                console.log(`👁️ EAR baseline: ${livenessState.baselineEar.toFixed(3)}`);
+                            }
+
+                            const dynamicThresh = livenessState.baselineEar
+                                ? Math.max(livenessState.baselineEar * 0.75, 0.18)
+                                : livenessState.absoluteThreshold;
+
+                            const isEyesClosed = earAvg < dynamicThresh;
+                            livenessState.totalFrames++;
+
+                            if (isEyesClosed) {
+                                livenessState.consecutiveBlinkFrames++;
+                                if (!livenessState.isBlinking) livenessState.isBlinking = true;
+                            } else {
+                                if (livenessState.isBlinking) {
+                                    livenessState.isBlinking = false;
+                                    livenessState.blinkCount++;
+                                    if (livenessState.blinkCount >= livenessState.minBlinksRequired) {
+                                        livenessState.livenessConfirmed = true;
+                                        console.log(`✅ Liveness via EAR blink!`);
+                                    }
+                                }
+                                livenessState.consecutiveBlinkFrames = 0;
+                            }
+                        }
+                    }
+                    // === END LIVENESS ===
+
+                    // RECOGNITION — only runs when we have a descriptor
+                    if (faceMatcher && !isDetectionPaused && detection.descriptor) {
+                        const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
+                        const confidencePercent = Math.round((1 - bestMatch.distance) * 100);
+                        const minConf = detectionConfig.minConfidencePercent || 65;
+
+                        if (bestMatch.label !== 'unknown' && confidencePercent >= minConf) {
+                            const matchedMember = members.find(m =>
+                                String(m.nim || '') === String(bestMatch.label) ||
+                                String(m.nama || '') === String(bestMatch.label) ||
+                                String(m.id || '') === String(bestMatch.label)
+                            );
+                            const memberName = matchedMember ? matchedMember.nama : bestMatch.label;
+
+                            if (!livenessState.livenessConfirmed) {
+                                livenessState.consecutiveRecognitionFrames++;
+                                // Auto-confirm after just 3 recognition frames
+                                if (livenessState.consecutiveRecognitionFrames >= livenessState.autoConfirmAfterFrames) {
+                                    livenessState.livenessConfirmed = true;
+                                    console.log(`✅ Liveness auto-confirmed (${livenessState.consecutiveRecognitionFrames} frames)`);
+                                }
+                                const blinkHint = ` - Kedipkan mata!`;
+                                lastRecognitionLabel = `${memberName} (${confidencePercent}%)${blinkHint}`;
+                                lastRecognitionColor = '#f59e0b';
+                            } else {
+                                livenessState.consecutiveRecognitionFrames = 0;
+                                lastRecognitionLabel = `${memberName} (${confidencePercent}%)`;
+                                lastRecognitionColor = '#22c55e';
+                                handleRecognition(matchedMember ? (matchedMember.id || matchedMember[0]) : bestMatch.label, 'neutral');
+                            }
+                        } else if (bestMatch.label !== 'unknown' && confidencePercent < minConf) {
+                            livenessState.consecutiveRecognitionFrames = 0;
+                            lastRecognitionLabel = `Kemiripan terlalu rendah: ${confidencePercent}% (min: ${minConf}%)`;
+                            lastRecognitionColor = '#f97316';
+                        } else {
+                            livenessState.consecutiveRecognitionFrames = 0;
+                            lastRecognitionLabel = 'Wajah tidak dikenal';
+                            lastRecognitionColor = '#ef4444';
+                        }
+                    } else if (!faceMatcher) {
+                        if (labeledFaceDescriptors.length > 0) {
+                            faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.5);
+                            lastRecognitionLabel = 'Sistem siap...';
+                        } else {
+                            lastRecognitionLabel = 'Mempersiapkan sistem...';
+                        }
+                    } else if (!detection.descriptor) {
+                        // Lightweight frame — show last known label
+                        // (label from previous recognition frame remains visible)
+                    }
+
+                    // DRAWING
                     ctx.strokeStyle = lastRecognitionColor;
                     ctx.lineWidth = 3;
                     ctx.strokeRect(mirroredX, box.y, box.width, box.height);
-
                     ctx.font = 'bold 14px Inter, sans-serif';
                     const textWidth = ctx.measureText(lastRecognitionLabel).width;
                     ctx.fillStyle = lastRecognitionColor;
                     ctx.fillRect(mirroredX, box.y - 26, textWidth + 10, 26);
                     ctx.fillStyle = 'white';
                     ctx.fillText(lastRecognitionLabel, mirroredX + 5, box.y - 7);
+
                 } else {
+                    // NULL DETECTION: possible blink in progress
+                    if (!livenessState.livenessConfirmed && livenessState.isBlinking) {
+                        livenessState.nullFramesDuringBlink++;
+                        if (livenessState.nullFramesDuringBlink >= 2) {
+                            livenessState.isBlinking = false;
+                            livenessState.blinkCount++;
+                            livenessState.nullFramesDuringBlink = 0;
+                            if (livenessState.blinkCount >= livenessState.minBlinksRequired) {
+                                livenessState.livenessConfirmed = true;
+                                console.log(`✅ Liveness confirmed (face lost = eye closed)`);
+                            }
+                        }
+                    }
                     lastRecognitionLabel = 'Posisikan wajah...';
                     lastRecognitionColor = '#3b82f6';
                 }
+
             } catch (e) {
                 if (!e.message?.includes('disposed')) console.error('Detection error:', e);
             } finally {
@@ -505,20 +700,51 @@ function startVideoInterval() {
             }
         }
 
-        // Schedule next iteration ONLY after this one is done
         if (!isDetectionStopped && isCameraActive) {
             videoInterval = setTimeout(detectionLoop, detectionDelay);
         }
     }
 
-    videoInterval = setTimeout(detectionLoop, 100); // Start first cycle soon
+    videoInterval = setTimeout(detectionLoop, 50);
     console.log('✅ Detection loop started');
 }
+
 
 function shouldAcceptDetection(match, faceData) {
     if (match.distance > getAdjustedRecognitionThreshold()) return false;
     if (assessFaceQuality(faceData) < getAdjustedQualityThreshold()) return false;
     return true;
+}
+
+/**
+ * Calculate Eye Aspect Ratio (EAR) for blink detection.
+ * Uses 6 landmark points from one eye.
+ * EAR = (||p2-p6|| + ||p3-p5||) / (2 * ||p1-p4||)
+ * When eye is open: EAR ~0.25-0.35. When closed: EAR < 0.21
+ */
+function calcEAR(eyePoints) {
+    if (!eyePoints || eyePoints.length < 6) return 0.3; // default open
+    const dist = (a, b) => Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2));
+    const vertical1 = dist(eyePoints[1], eyePoints[5]);
+    const vertical2 = dist(eyePoints[2], eyePoints[4]);
+    const horizontal = dist(eyePoints[0], eyePoints[3]);
+    if (horizontal < 1) return 0.3;
+    return (vertical1 + vertical2) / (2.0 * horizontal);
+}
+
+/**
+ * Reset liveness state when starting a new scan session.
+ */
+function resetLiveness() {
+    livenessState.blinkCount = 0;
+    livenessState.earHistory = [];
+    livenessState.baselineEar = null;
+    livenessState.isBlinking = false;
+    livenessState.consecutiveBlinkFrames = 0;
+    livenessState.livenessConfirmed = false;
+    livenessState.totalFrames = 0;
+    livenessState.consecutiveRecognitionFrames = 0;
+    livenessState.nullFramesDuringBlink = 0;
 }
 
 function assessFaceQuality(face) {
@@ -600,7 +826,8 @@ async function handleRecognition(nim, expression) {
             landmarks,  // JSON landmarks (~1-2KB)
             lat,
             lng,
-            lokasi
+            lokasi,
+            gps_accuracy: pos ? pos.coords.accuracy : null // Send GPS accuracy for server-side anti-spoofing
         };
 
         // NEW: Check for different clock-out location
@@ -979,13 +1206,21 @@ function getPosition() {
         
         navigator.geolocation.getCurrentPosition(
             (pos) => {
-                // Reject extremely low accuracy (e.g., > 2000m) as it's often a sign of cell tower spoofing or lack of actual GPS lock
-                if (pos.coords.accuracy > 2000) {
-                    console.warn(`Location discarded due to terrible accuracy: ${pos.coords.accuracy}m`);
+                const accuracy = pos.coords.accuracy;
+                // Reject extremely low accuracy (> 2000m)
+                if (accuracy > 2000) {
+                    console.warn(`Location discarded due to terrible accuracy: ${accuracy}m`);
                     statusMessage('Akurasi lokasi buruk. Mohon cari area terbuka.', 'bg-yellow-100 text-yellow-700');
                     resolve(null);
                     return;
                 }
+                // Warn about fake GPS (suspiciously perfect accuracy)
+                if (accuracy < 1) {
+                    console.warn(`WARNING: Suspiciously perfect accuracy (${accuracy}m) - possible fake GPS`);
+                    statusMessage('GPS accuracy mencurigakan. Pastikan tidak menggunakan Fake GPS.', 'bg-red-100 text-red-700');
+                    // Still send to server for validation (server will reject it)
+                }
+                console.log(`GPS Accuracy: ${accuracy}m`);
                 resolve(pos);
             }, 
             (err) => {
@@ -1193,6 +1428,7 @@ function submitAttendanceWithReason(data) {
         lokasi: data.lokasi || window.pendingAttendanceData.lokasi,
         lat: data.lat || window.pendingAttendanceData.lat,
         lng: data.lng || window.pendingAttendanceData.lng,
+        gps_accuracy: data.gps_accuracy || window.pendingAttendanceData?.gps_accuracy || null,
         wfa_reason: data.alasan_wfa || window.pendingAttendanceData.alasan_wfa,
         early_leave_reason: data.early_leave_reason || window.pendingAttendanceData.early_leave_reason,
         overtime_reason: data.overtime_reason || window.pendingAttendanceData.overtime_reason,
