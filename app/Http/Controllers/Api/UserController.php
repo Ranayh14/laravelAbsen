@@ -181,6 +181,8 @@ class UserController extends Controller
                 
                 $path = $request->file('foto_base64')->store('public/users');
                 $user->foto_base64 = basename($path);
+                // CRITICAL: Clear face embedding so it's recomputed from new photo
+                $user->face_embedding_128 = null;
                 $user->save();
             }
 

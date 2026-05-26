@@ -734,6 +734,8 @@ if (isset($_REQUEST['ajax'])) {
                 $foto = saveBase64Image($foto, 'users');
                 $setParts[] = 'foto_base64=:foto';
                 $params[':foto'] = $foto;
+                // CRITICAL: Clear face_embedding_128 so it's recomputed from new photo
+                $setParts[] = 'face_embedding_128=NULL';
             }
             
             $sql = "UPDATE users SET " . implode(', ', $setParts) . " WHERE id=:id";
@@ -1514,26 +1516,62 @@ if (isset($_REQUEST['ajax'])) {
                 $ketVal = 'wfa'; // Default WFA
 
                 // =========================================================
-                // KEPUTUSAN FINAL WFO/WFA — OR logic yang lebih adil:
+                // KEPUTUSAN FINAL WFO/WFA — SMART CAMPUS GEOFENCING:
                 //   WFO jika:
                 //     a) IP terdeteksi jaringan TelU (WiFi/LAN kampus) — bukti kuat
-                //     ATAU
-                //     b) GPS dalam radius kampus yang cukup luas (600m)
-                //        (untuk yang pakai data seluler di dalam kampus)
-                // Alasan OR: IP kampus sudah sangat kuat sebagai bukti kehadiran.
-                //   Kos sekitar kampus tidak akan terhubung ke WiFi internal 10.x.x.x.
+                //     b) ATAU GPS berada dalam radius dekat Gedung FIT (<= 120m)
+                //     c) ATAU GPS berada dalam radius kampus (650m) DAN alamat geocode
+                //        membuktikan berada di dalam area Telkom University (memiliki keyword
+                //        kampus dan tidak memiliki keyword kos/gang/rumah/sukabirus).
                 // =========================================================
+                $isInsideCampusGeofence = false;
+                if ($distance !== null && $distance <= 650) {
+                    $lowerLokasi = strtolower($lokasi);
+                    
+                    // Keyword valid area internal Telkom University
+                    $campusKeywords = ['telkom', 'selaru', 'tokong', 'fakultas', 'gedung', 'danau galau', 'situ techno', 'situ tekno', 'monumen', 'rektorat', 'tass', 'fit', 'fik', 'fif', 'fri', 'fte', 'feb', 'fkb'];
+                    
+                    // Keyword penanda luar kampus / kosan / pemukiman sekitar
+                    $offCampusKeywords = ['kos', 'kost', 'gang', 'gg.', 'gg ', 'rumah', 'wisma', 'kontrakan', 'residence', 'cluster', 'perumahan', 'sukabirus', 'ciganitri', 'pga'];
+                    
+                    $hasCampusKeyword = false;
+                    foreach ($campusKeywords as $kw) {
+                        if (str_contains($lowerLokasi, $kw)) {
+                            $hasCampusKeyword = true;
+                            break;
+                        }
+                    }
+                    
+                    $hasOffCampusKeyword = false;
+                    foreach ($offCampusKeywords as $kw) {
+                        if (str_contains($lowerLokasi, $kw)) {
+                            $hasOffCampusKeyword = true;
+                            break;
+                        }
+                    }
+                    
+                    if ($hasCampusKeyword && !$hasOffCampusKeyword) {
+                        $isInsideCampusGeofence = true;
+                        error_log("WFO Campus Geofence - Lokasi valid kampus: $lokasi");
+                    } else {
+                        error_log("WFO Campus Geofence - Lokasi ditolak (pemukiman/luar): $lokasi");
+                    }
+                }
+
                 if ($isInsideTeluByApi) {
                     $ketVal = 'wfo';
                     error_log('✓ WFO via IP — IP jaringan TelU valid: ' . $publicIp);
                 } elseif ($isInsideRadius) {
                     $ketVal = 'wfo';
-                    error_log('✓ WFO via GPS — dalam radius ' . round($distance) . 'm dari gedung FIT (pakai data seluler)');
+                    error_log('✓ WFO via GPS — dalam radius dekat ' . round($distance) . 'm dari gedung FIT (pakai data seluler)');
+                } elseif ($isInsideCampusGeofence) {
+                    $ketVal = 'wfo';
+                    error_log('✓ WFO via Campus Geofence — dalam radius kampus ' . round($distance) . 'm dan alamat valid: ' . $lokasi);
                 } else {
                     if ($distance !== null) {
-                        error_log('✗ WFA — IP bukan TelU DAN GPS ' . round($distance) . 'm di luar radius ' . $effectiveRadius . 'm');
+                        error_log('✗ WFA — IP bukan TelU, di luar radius dekat (' . round($distance) . 'm > ' . $effectiveRadius . 'm), dan bukan area kampus valid.');
                     } else {
-                        error_log('✗ WFA — IP bukan TelU DAN GPS tidak tersedia');
+                        error_log('✗ WFA — IP bukan TelU dan GPS tidak tersedia');
                     }
                 }
                 
@@ -1659,6 +1697,7 @@ if (isset($_REQUEST['ajax'])) {
                 
                 if ($alasanPulangAwal) {
                     // Requires approval - send to admin_help_requests
+                    // 'subtype' is encoded in attendance_reason as 'pulang_lebih_awal|<reason>' for correct label display
                     $ins = $pdo->prepare("INSERT INTO admin_help_requests (user_id, request_type, tanggal, jam_masuk, jam_pulang, bukti_presensi, lokasi_presensi, attendance_type, attendance_reason, status) VALUES (:uid, 'late_attendance', :today, :jmasuk, :jam, :screenshot, :lokasi, :ket, :alasan, 'pending')");
                     $ins->execute([
                         ':uid' => $u['id'],
@@ -1668,7 +1707,7 @@ if (isset($_REQUEST['ajax'])) {
                         ':screenshot' => $screenshot,
                         ':lokasi' => $lokasi,
                         ':ket' => $todayRow['ket'], // Keep original ket
-                        ':alasan' => $alasanPulangAwal
+                        ':alasan' => 'pulang_lebih_awal|' . $alasanPulangAwal // Prefixed to distinguish from manual 'lupa presensi'
                     ]);
                     
                     $jamPulangFormat = substr($jamSekarang, 0, 5);
@@ -4228,7 +4267,11 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
                 } elseif ($req['request_type'] === 'late_attendance') {
                     // Determine ket and reason based on request
                     $ket = $req['attendance_type'] ?? 'wfo';
-                    $reason = $req['attendance_reason'] ?? null;
+                    $rawReason = $req['attendance_reason'] ?? null;
+                    
+                    // Strip 'pulang_lebih_awal|' prefix if present (used for label differentiation)
+                    $isPulangLebihAwal = $rawReason && strpos($rawReason, 'pulang_lebih_awal|') === 0;
+                    $reason = $isPulangLebihAwal ? substr($rawReason, strlen('pulang_lebih_awal|')) : $rawReason;
                     
                     $alasanWfa = ($ket === 'wfa') ? $reason : null;
                     $alasanOvertime = ($ket === 'overtime') ? $reason : null;

@@ -520,7 +520,9 @@
                     if (r.request_type === 'past_attendance') typeLabel = '<i class="fi fi-rr-calendar-clock text-blue-500"></i> Lupa Presensi';
                     else if (r.request_type === 'bug_report') typeLabel = '<i class="fi fi-rr-bug text-red-500"></i> Laporan Bug';
                     else if (r.request_type === 'late_attendance') {
-                        if (r.jam_pulang) typeLabel = '<i class="fi fi-rr-exit text-orange-500"></i> Pulang Lebih Awal';
+                        // 'pulang_lebih_awal|' prefix in attendance_reason identifies auto-generated early checkout requests
+                        const isPulangLebihAwal = r.attendance_reason && r.attendance_reason.startsWith('pulang_lebih_awal|');
+                        if (isPulangLebihAwal) typeLabel = '<i class="fi fi-rr-exit text-orange-500"></i> Pulang Lebih Awal';
                         else if (r.attendance_type === 'wfa') typeLabel = '<i class="fi fi-rr-home-location text-purple-500"></i> Presensi WFA';
                         else if (r.attendance_type === 'overtime') typeLabel = '<i class="fi fi-rr-time-add text-indigo-500"></i> Presensi Overtime';
                         else typeLabel = '<i class="fi fi-rr-time-past text-yellow-500"></i> Presensi Manual';
@@ -530,11 +532,14 @@
                     let summary = '';
                     if (r.request_type === 'past_attendance') summary = (r.jenis_izin || '') + (r.alasan_izin ? ': ' + r.alasan_izin.slice(0,60) : '');
                     if (r.request_type === 'late_attendance') {
-                        if (r.jam_pulang) {
-                            summary = 'Jam pulang: ' + r.jam_pulang.slice(0,5);
-                            if (r.jam_masuk) {
-                                summary += ' | Jam masuk: ' + r.jam_masuk.slice(0,5);
-                            }
+                        const isPulangLebihAwal2 = r.attendance_reason && r.attendance_reason.startsWith('pulang_lebih_awal|');
+                        if (isPulangLebihAwal2) {
+                            const cleanReason = r.attendance_reason.replace('pulang_lebih_awal|', '');
+                            summary = 'Pulang pukul: ' + (r.jam_pulang ? r.jam_pulang.slice(0,5) : '-');
+                            if (cleanReason) summary += ' | Alasan: ' + cleanReason.slice(0, 50);
+                        } else if (r.jam_pulang) {
+                            summary = 'Jam masuk: ' + (r.jam_masuk ? r.jam_masuk.slice(0,5) : '-') + ' | Jam pulang: ' + r.jam_pulang.slice(0,5);
+                            if (r.attendance_type) summary += ' (' + r.attendance_type.toUpperCase() + ')';
                         } else {
                             summary = (r.jam_masuk ? 'Jam masuk: ' + r.jam_masuk.slice(0,5) : '') + (r.attendance_type ? ' (' + r.attendance_type.toUpperCase() + ')' : '');
                         }

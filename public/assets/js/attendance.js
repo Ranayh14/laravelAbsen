@@ -189,31 +189,48 @@ async function loadFaceApiModels() {
     }
     
     window.loadingFaceApiModels = true;
-    // Removed overlay toggle here to allow silent background loading on page load
-    // if (loadingOverlay) loadingOverlay.classList.remove('hidden');
     
     const MODEL_URL = window.FACEAPI_MODEL_URL || 'assets/js/face-api-models';
     
     try {
         console.log('🚀 Loading face recognition models...');
+        updateLoadingProgress(5, 'Menginisialisasi backend AI...');
         
         // Ensure backend is ready
         await faceapi.tf.ready();
+        updateLoadingProgress(10, 'Memuat model deteksi wajah...');
         
-        await Promise.all([
-            faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-            faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-            faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-            faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL)
-        ]);
+        // Load models sequentially with progress updates
+        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+        updateLoadingProgress(30, 'Memuat model landmark wajah...');
+        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+        updateLoadingProgress(50, 'Memuat model pengenalan wajah...');
+        await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+        updateLoadingProgress(70, 'Memuat model ekspresi wajah...');
+        await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
+        updateLoadingProgress(80, 'Model AI siap!');
         window.faceApiModelsLoaded = true;
     } catch (e) {
         console.error('Error loading models', e);
+        updateLoadingProgress(0, 'Gagal memuat model. Coba muat ulang halaman.');
         throw e;
     } finally {
         window.loadingFaceApiModels = false;
-        // if (loadingOverlay) loadingOverlay.classList.add('hidden');
     }
+}
+
+/**
+ * Update loading progress bar and status text in the loading overlay.
+ * @param {number} percent - 0 to 100
+ * @param {string} message - Status message to display
+ */
+function updateLoadingProgress(percent, message) {
+    const progressEl = document.getElementById('loading-progress');
+    const progressBar = document.getElementById('loading-progress-bar');
+    const progressPct = document.getElementById('loading-progress-pct');
+    if (progressEl) progressEl.textContent = message || '';
+    if (progressBar) progressBar.style.width = Math.min(100, Math.max(0, percent)) + '%';
+    if (progressPct) progressPct.textContent = Math.round(percent) + '%';
 }
 
 async function loadLabeledFaceDescriptors() {
@@ -274,7 +291,7 @@ async function loadLabeledFaceDescriptors() {
         // CRITICAL: Aggressive Parallel Loading (< 5s for 17 members)
         statusMessage('Mengoptimalkan sistem (Hanya sekali)...', 'bg-blue-100 text-blue-700');
         
-        const promises = membersToProcess.map(async m => {
+        const promises = membersToProcess.map(async (m, idx) => {
             try {
                 const label = String(m.nim || m[3] || m.nama || m[4] || m.id || m[0]);
                 const embedding = m.face_embedding || m[8];
@@ -285,6 +302,8 @@ async function loadLabeledFaceDescriptors() {
                     try {
                         const parsed = JSON.parse(embedding);
                         if (Array.isArray(parsed) && parsed.length === 128) {
+                            const pct = 80 + Math.round(((idx + 1) / membersToProcess.length) * 18);
+                            updateLoadingProgress(pct, `Memuat data wajah: ${idx + 1}/${membersToProcess.length}...`);
                             return new faceapi.LabeledFaceDescriptors(label, [new Float32Array(parsed)]);
                         }
                     } catch (e) {}
@@ -302,6 +321,8 @@ async function loadLabeledFaceDescriptors() {
                     formData.append('id', m.id || m[0]);
                     formData.append('embedding', JSON.stringify(Array.from(det.descriptor)));
                     api('index.php?ajax=save_face_embedding', formData);
+                    const pct = 80 + Math.round(((idx + 1) / membersToProcess.length) * 18);
+                    updateLoadingProgress(pct, `Menghitung data wajah: ${idx + 1}/${membersToProcess.length}...`);
                     return new faceapi.LabeledFaceDescriptors(label, [det.descriptor]);
                 }
             } catch (e) { console.warn('Fast compute fail', e); }
@@ -313,6 +334,7 @@ async function loadLabeledFaceDescriptors() {
         if (labeledFaceDescriptors.length > 0) {
             faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.5);
         }
+        updateLoadingProgress(100, `✅ Sistem siap! ${labeledFaceDescriptors.length} wajah dimuat.`);
         
         // Cache in IDB for even faster local reloads
         if (typeof idbSetDescriptors === 'function' && typeof computeMembersVersionKey === 'function') {
@@ -326,6 +348,7 @@ async function loadLabeledFaceDescriptors() {
         console.log(`Loaded ${labeledFaceDescriptors.length} descriptors in ${(performance.now() - startTime).toFixed(2)}ms`);
     } catch (e) {
         console.error('Descriptor load failed:', e);
+        updateLoadingProgress(0, '⚠️ Gagal memuat data wajah.');
     } finally {
         window._loadingDescriptors = false;
     }
@@ -377,14 +400,21 @@ async function startScan(mode) {
 
 
     statusMessage('Menginisialisasi sistem...', 'bg-blue-100 text-blue-700');
+    
+    // Show loading overlay with progress bar
+    if (loadingOverlay) {
+        loadingOverlay.classList.remove('hidden');
+        updateLoadingProgress(0, 'Mempersiapkan sistem...');
+    }
 
     // Start camera immediately (parallel with everything else)
     const cameraPromise = startVideo();
 
     // Ensure models are loaded
     if (!window.faceApiModelsLoaded) {
-        statusMessage('Memuat model AI...', 'bg-blue-100 text-blue-700');
         await loadFaceApiModels();
+    } else {
+        updateLoadingProgress(80, 'Model AI sudah siap!');
     }
 
     // Wait for camera
@@ -392,8 +422,9 @@ async function startScan(mode) {
 
     // Load descriptors if needed
     if (labeledFaceDescriptors.length === 0) {
-        statusMessage('Memuat data wajah...', 'bg-blue-100 text-blue-700');
         await loadLabeledFaceDescriptors();
+    } else {
+        updateLoadingProgress(100, `✅ Sistem siap! ${labeledFaceDescriptors.length} wajah dimuat.`);
     }
     
     // Build faceMatcher if not yet built
@@ -401,6 +432,9 @@ async function startScan(mode) {
         faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.5);
         console.log(`✅ FaceMatcher built with ${labeledFaceDescriptors.length} descriptors`);
     }
+
+    // Hide loading overlay
+    if (loadingOverlay) loadingOverlay.classList.add('hidden');
 
     statusMessage('Sistem siap! Arahkan wajah ke kamera.', 'bg-green-100 text-green-700');
     startVideoInterval();
@@ -419,7 +453,21 @@ async function startVideo() {
             }
         };
 
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        let stream;
+        try {
+            stream = await navigator.mediaDevices.getUserMedia(constraints);
+        } catch (firstErr) {
+            console.warn('Camera with ideal constraints failed, trying fallback:', firstErr.message);
+            // Fallback: try front camera with basic constraints
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+            } catch (secondErr) {
+                console.warn('Front camera fallback failed, trying any camera:', secondErr.message);
+                // Last resort: any available video
+                stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            }
+        }
+        
         video.srcObject = stream;
         isCameraActive = true;
 
@@ -435,7 +483,17 @@ async function startVideo() {
         console.log('✅ Camera ready:', video.videoWidth, 'x', video.videoHeight);
     } catch (err) {
         console.error('Camera error:', err);
-        statusMessage('Gagal mengakses kamera: ' + err.message, 'bg-red-100 text-red-700');
+        let errMsg = 'Gagal mengakses kamera.';
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+            errMsg = 'Izin kamera ditolak. Harap aktifkan izin kamera di pengaturan browser Anda.';
+        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+            errMsg = 'Kamera tidak ditemukan. Pastikan perangkat Anda memiliki kamera.';
+        } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+            errMsg = 'Kamera sedang digunakan oleh aplikasi lain. Tutup aplikasi lain yang menggunakan kamera.';
+        } else if (err.name === 'OverconstrainedError') {
+            errMsg = 'Kamera tidak mendukung konfigurasi yang diperlukan. Coba gunakan perangkat lain.';
+        }
+        statusMessage(errMsg, 'bg-red-100 text-red-700');
     }
 }
 

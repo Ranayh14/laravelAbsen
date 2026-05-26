@@ -11428,7 +11428,14 @@ qs('#work-schedule-save') && qs('#work-schedule-save').addEventListener('click',
                 <div class="bg-white border border-gray-100 rounded-3xl overflow-hidden shadow-sm">
                     <div class="p-5 border-b border-gray-50 flex justify-between items-center">
                         <span class="text-sm font-bold text-gray-700">Jenis Layanan</span>
-                        <span class="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-xs font-bold uppercase">${getRequestTypeLabel(item.request_type)}</span>
+                        <span class="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-xs font-bold uppercase">${
+                            item.request_type === 'late_attendance'
+                                ? (item.attendance_reason && item.attendance_reason.startsWith('pulang_lebih_awal|') ? 'Pulang Lebih Awal'
+                                    : item.attendance_type === 'wfa' ? 'Presensi WFA'
+                                    : item.attendance_type === 'overtime' ? 'Presensi Overtime'
+                                    : 'Presensi Manual')
+                                : getRequestTypeLabel(item.request_type)
+                        }</span>
                     </div>
                     <div class="p-6 space-y-4">
                         ${renderRequestTypeDetails(item)}
@@ -11532,12 +11539,16 @@ qs('#work-schedule-save') && qs('#work-schedule-save').addEventListener('click',
                     <p class="text-xs text-gray-400 mb-1">Alasan</p>
                     <p class="text-sm text-gray-700 leading-relaxed">${item.alasan_izin || '-'}</p>
                 </div>
-                ${item.bukti_izin ? `
+                ${item.bukti_izin ? (() => {
+                    const bi = item.bukti_izin;
+                    const biSrc = bi.startsWith('data:') ? bi : (bi.startsWith('/') ? bi : '/' + bi);
+                    return `
                     <div>
                         <p class="text-xs text-gray-400 mb-2">Bukti Pendukung</p>
-                        <img src="${item.bukti_izin}" class="w-full h-48 object-cover rounded-2xl cursor-pointer hover:opacity-90 transition-opacity" onclick="showScreenshotModal('${item.bukti_izin}', 'Bukti Izin/Sakit')">
-                    </div>
-                ` : ''}
+                        <img src="${biSrc}" class="w-full h-48 object-cover rounded-2xl cursor-pointer hover:opacity-90 transition-opacity" onclick="showScreenshotModal('${biSrc.replace(/'/g, '%27')}', 'Bukti Izin/Sakit')" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+                        <div style="display:none" class="w-full h-20 bg-red-50 rounded-2xl border border-red-200 flex items-center justify-center text-red-400 text-xs"><i class="fi fi-rr-picture mr-1"></i> Gambar tidak tersedia</div>
+                    </div>`;
+                })() : ''}
             `;
         } else if (item.request_type === 'late_attendance') {
             const tipeLabel = item.attendance_type === 'wfa' ? 'Work From Anywhere (WFA)'
@@ -11566,22 +11577,34 @@ qs('#work-schedule-save') && qs('#work-schedule-save').addEventListener('click',
                         <p class="text-sm font-bold text-gray-800">${item.jam_pulang ? item.jam_pulang.substring(0,5) : '-'}</p>
                     </div>
                 </div>
-                ${(item.attendance_reason) ? `
+                ${(() => {
+                    if (!item.attendance_reason) return '';
+                    const isPulangLebihAwal = item.attendance_reason.startsWith('pulang_lebih_awal|');
+                    const cleanReason = isPulangLebihAwal ? item.attendance_reason.replace('pulang_lebih_awal|', '') : item.attendance_reason;
+                    if (!cleanReason) return '';
+                    const reasonLabel = isPulangLebihAwal ? 'Alasan Pulang Lebih Awal'
+                        : item.attendance_type === 'overtime' ? 'Alasan Overtime'
+                        : 'Alasan WFA';
+                    return `
                     <div>
-                        <p class="text-xs text-gray-400 mb-1">Alasan ${item.attendance_type === 'overtime' ? 'Overtime' : 'WFA'}</p>
-                        <p class="text-sm text-gray-700 bg-indigo-50 p-3 rounded-xl italic">${item.attendance_reason}</p>
-                    </div>
-                ` : ''}
+                        <p class="text-xs text-gray-400 mb-1">${reasonLabel}</p>
+                        <p class="text-sm text-gray-700 bg-indigo-50 p-3 rounded-xl italic">${cleanReason}</p>
+                    </div>`;
+                })()}
                 <div>
                     <p class="text-xs text-gray-400 mb-1">Lokasi Verifikasi <span class="text-green-600">(otomatis dari GPS)</span></p>
                     <p class="text-xs text-gray-700 italic">${item.lokasi_presensi || '-'}</p>
                 </div>
-                ${item.bukti_presensi ? `
+                ${item.bukti_presensi ? (() => {
+                    const bp = item.bukti_presensi;
+                    const bpSrc = bp.startsWith('data:') ? bp : (bp.startsWith('/') ? bp : '/' + bp);
+                    return `
                     <div>
                         <p class="text-xs text-gray-400 mb-2">Bukti Wajah</p>
-                        <img src="${item.bukti_presensi}" class="w-full h-48 object-cover rounded-2xl cursor-pointer hover:opacity-90 transition-opacity" onclick="showScreenshotModal('${item.bukti_presensi}', 'Verifikasi Wajah')">
-                    </div>
-                ` : ''}
+                        <img src="${bpSrc}" class="w-full h-48 object-cover rounded-2xl cursor-pointer hover:opacity-90 transition-opacity" onclick="showScreenshotModal('${bpSrc.replace(/'/g, '%27')}', 'Verifikasi Wajah')" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+                        <div style="display:none" class="w-full h-20 bg-red-50 rounded-2xl border border-red-200 flex items-center justify-center text-red-400 text-xs"><i class="fi fi-rr-picture mr-1"></i> Gambar tidak tersedia</div>
+                    </div>`;
+                })() : ''}
             `;
         } else if (item.request_type === 'bug_report') {
             return `

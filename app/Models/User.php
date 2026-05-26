@@ -26,7 +26,8 @@ class User extends Authenticatable
         'prodi',
         'startup',
         'foto_base64',          // Nama file foto (bukan base64 string)
-        'face_embedding',       // Float32Array 128-dim untuk pencocokan wajah
+        'face_embedding',       // Float32Array 512-dim (legacy)
+        'face_embedding_128',   // Float32Array 128-dim untuk pencocokan wajah (aktif)
         'face_embedding_updated',
         'face_landmarks',       // JSON 68 titik landmark wajah referensi
         'google_authenticator_secret',

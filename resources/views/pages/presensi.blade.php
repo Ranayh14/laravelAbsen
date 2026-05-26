@@ -31,8 +31,15 @@
     
                     <div id="loading-overlay" class="absolute inset-0 bg-black/90 flex flex-col items-center justify-center text-white z-20 hidden">
                         <i class="fi fi-sr-spinner animate-spin text-4xl mb-3 text-blue-500"></i>
-                        <p class="font-medium tracking-wide">Memuat Sistem AI...</p>
-                        <p id="loading-progress" class="text-xs text-gray-400 mt-2">Mohon tunggu sebentar...</p>
+                        <p class="font-medium tracking-wide mb-2">Memuat Sistem AI...</p>
+                        <!-- Progress Bar -->
+                        <div class="w-48 bg-white/10 rounded-full h-2 mb-2 overflow-hidden">
+                            <div id="loading-progress-bar" class="bg-blue-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span id="loading-progress-pct" class="text-xs font-bold text-blue-400">0%</span>
+                        </div>
+                        <p id="loading-progress" class="text-xs text-gray-400 mt-1 text-center px-4">Mohon tunggu sebentar...</p>
                     </div>
                 </div>
 
