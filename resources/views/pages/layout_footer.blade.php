@@ -11435,7 +11435,7 @@ qs('#work-schedule-save') && qs('#work-schedule-save').addEventListener('click',
                     </div>
                     <div class="flex-1 min-w-0">
                         <p class="text-sm font-bold text-gray-800 truncate">${item.nama}</p>
-                        <p class="text-xs text-gray-500 truncate">${getRequestTypeLabel(item.request_type)}</p>
+                        <p class="text-xs text-gray-500 truncate">${getRequestTypeLabel(item.request_type, item)}</p>
                         <p class="text-[10px] text-gray-400 mt-1">${formatTimeAgo(item.created_at)}</p>
                     </div>
                     ${item.status === 'pending' ? '<span class="w-2 h-2 bg-indigo-500 rounded-full mt-1.5 flex-shrink-0 animate-pulse"></span>' : ''}
@@ -11502,7 +11502,7 @@ qs('#work-schedule-save') && qs('#work-schedule-save').addEventListener('click',
                 </td>
                 <td class="px-6 py-4">
                     <span class="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${getRequestTypeClass(i.request_type)}">
-                        ${getRequestTypeLabel(i.request_type)}
+                        ${getRequestTypeLabel(i.request_type, i)}
                     </span>
                 </td>
                 <td class="px-6 py-4">
@@ -11578,7 +11578,7 @@ qs('#work-schedule-save') && qs('#work-schedule-save').addEventListener('click',
                                     : item.attendance_type === 'wfa' ? 'Presensi WFA'
                                     : item.attendance_type === 'overtime' ? 'Presensi Overtime'
                                     : 'Presensi Manual')
-                                : getRequestTypeLabel(item.request_type)
+                                : getRequestTypeLabel(item.request_type, item)
                         }</span>
                     </div>
                     <div class="p-6 space-y-4">
@@ -11904,7 +11904,7 @@ qs('#work-schedule-save') && qs('#work-schedule-save').addEventListener('click',
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center justify-between mb-1">
-                                <span class="text-[10px] font-bold uppercase tracking-widest text-gray-400">${getRequestTypeLabel(item.request_type)}</span>
+                                <span class="text-[10px] font-bold uppercase tracking-widest text-gray-400">${getRequestTypeLabel(item.request_type, item)}</span>
                                 <span class="text-[10px] text-gray-400">${formatTimeAgo(item.created_at)}</span>
                             </div>
                             <p class="text-sm font-bold text-gray-800">Request Anda telah <span class="${statusColor} uppercase">${statusLabel}</span></p>
@@ -11939,9 +11939,13 @@ function getRequestStatusLabel(status, type) {
     if (status === 'disapproved') return 'REJECTED';
     return status.toUpperCase();
 }
-function getRequestTypeLabel(type) {
+function getRequestTypeLabel(type, item) {
+    if (type === 'past_attendance') {
+        if (item && item.jenis_izin === 'izin') return 'Request Izin';
+        if (item && item.jenis_izin === 'sakit') return 'Request Sakit';
+        return 'Absen/Izin Kemarin';
+    }
     const labels = {
-        'past_attendance': 'Absen/Izin Kemarin',
         'late_attendance': 'Presensi Terlambat',
         'bug_report': 'Laporan Bug'
     };

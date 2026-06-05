@@ -3004,116 +3004,49 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
             jsonResponse(['ok' => false, 'message' => 'Sudah ada presensi untuk hari ini'], 400);
         }
         
-        // Ensure attendance_notes table has correct structure
+        // Check if there is already an approved note for today
         try {
-            // Check and add missing columns
-            $requiredColumns = [
-                'type' => "ENUM('izin','sakit') NOT NULL AFTER `date`",
-                'keterangan' => "TEXT NOT NULL AFTER type",
-                'bukti' => "LONGTEXT NULL AFTER keterangan"
-            ];
-            
-            foreach ($requiredColumns as $columnName => $columnDef) {
-                $checkColumn = $pdo->query("SHOW COLUMNS FROM attendance_notes LIKE '$columnName'");
-                if ($checkColumn->rowCount() == 0) {
-                    error_log("submit_izin_sakit: Adding missing '$columnName' column to attendance_notes table");
-                    $pdo->exec("ALTER TABLE attendance_notes ADD COLUMN $columnName $columnDef");
-                }
+            $checkNotes = $pdo->prepare("SELECT id FROM attendance_notes WHERE user_id=:uid AND `date`=:today");
+            $checkNotes->execute([':uid' => $user_id, ':today' => $today]);
+            if ($checkNotes->fetch()) {
+                jsonResponse(['ok' => false, 'message' => 'Data izin/sakit untuk hari ini sudah disetujui oleh admin.'], 400);
             }
-        } catch (PDOException $e) {
-            error_log("submit_izin_sakit: Error checking/adding columns: " . $e->getMessage());
+        } catch (PDOException $e) {}
+
+        // Check if there is already a pending request for today's permission/sickness
+        try {
+            $checkPending = $pdo->prepare("SELECT id FROM admin_help_requests WHERE user_id=:uid AND tanggal=:today AND status='pending' AND request_type='past_attendance'");
+            $checkPending->execute([':uid' => $user_id, ':today' => $today]);
+            if ($checkPending->fetch()) {
+                jsonResponse(['ok' => false, 'message' => 'Request izin/sakit untuk hari ini sudah terkirim dan sedang menunggu persetujuan admin.'], 400);
+            }
+        } catch (PDOException $e) {}
+
+        // Process proof image - save base64 to file
+        if ($bukti && strpos($bukti, 'data:image/') === 0) {
+            $buktiPath = saveBase64Image($bukti, 'help_requests');
+        } else {
+            $buktiPath = $bukti;
         }
 
-        // Insert/Update izin/sakit record to attendance_notes (idempotent)
-        error_log("submit_izin_sakit: Attempting to insert record");
+        // Insert into admin_help_requests as a draft/request (pending)
         try {
-            $sql = "INSERT INTO attendance_notes (user_id, `date`, type, keterangan, bukti) 
-                    VALUES (:uid, :date, :type, :keterangan, :bukti)
-                    ON DUPLICATE KEY UPDATE type = VALUES(type), keterangan = VALUES(keterangan), bukti = VALUES(bukti)";
+            $sql = "INSERT INTO admin_help_requests (user_id, request_type, tanggal, jenis_izin, alasan_izin, bukti_izin, status) 
+                    VALUES (:uid, 'past_attendance', :date, :jenis, :alasan, :bukti, 'pending')";
             $ins = $pdo->prepare($sql);
             $result = $ins->execute([
                 ':uid' => $user_id,
                 ':date' => $today,
-                ':type' => $type,
-                ':keterangan' => $alasan,
-                ':bukti' => $bukti
+                ':jenis' => $type,
+                ':alasan' => $alasan,
+                ':bukti' => $buktiPath
             ]);
             
-            error_log("submit_izin_sakit: Insert result: " . ($result ? 'success' : 'failed'));
-            error_log("submit_izin_sakit: Inserted ID: " . $pdo->lastInsertId());
-            
             triggerDatabaseBackup();
-            error_log("submit_izin_sakit: Process completed successfully");
-            jsonResponse(['ok' => true, 'message' => 'Data izin/sakit berhasil disimpan']);
+            jsonResponse(['ok' => true, 'message' => 'Request izin/sakit berhasil dikirim dan menunggu persetujuan admin.']);
         } catch (PDOException $e) {
-            error_log("Error inserting attendance notes: " . $e->getMessage());
-            error_log("Error details: " . print_r($e, true));
-            
-            // If table doesn't exist, try to create it and retry
-            if (strpos($e->getMessage(), "doesn't exist") !== false || strpos($e->getMessage(), "Unknown table") !== false) {
-                error_log("submit_izin_sakit: Table doesn't exist, attempting to create");
-                try {
-                    // Create the attendance_notes table
-                    $pdo->exec(
-                        "CREATE TABLE IF NOT EXISTS attendance_notes (
-                            id INT AUTO_INCREMENT PRIMARY KEY,
-                            user_id INT NOT NULL,
-                            `date` DATE NOT NULL,
-                            type ENUM('izin','sakit') NOT NULL,
-                            keterangan TEXT NOT NULL,
-                            bukti LONGTEXT NULL,
-                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            INDEX(user_id),
-                            UNIQUE KEY unique_user_date (user_id, `date`),
-                            CONSTRAINT fk_an_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
-                    );
-                    // Best-effort ensure unique key exists
-                    try { $pdo->exec("ALTER TABLE attendance_notes ADD UNIQUE KEY unique_user_date (user_id, `date`)"); } catch (PDOException $_) {}
-                    
-                    error_log("submit_izin_sakit: Table created, retrying insert");
-                    
-                    // Retry the insert
-                    $ins = $pdo->prepare($sql);
-                    $result = $ins->execute([
-                        ':uid' => $user_id,
-                        ':date' => $today,
-                        ':type' => $type,
-                        ':keterangan' => $alasan,
-                        ':bukti' => $bukti
-                    ]);
-                    
-                    error_log("submit_izin_sakit: Retry insert result: " . ($result ? 'success' : 'failed'));
-                    
-                    triggerDatabaseBackup();
-                    jsonResponse(['ok' => true, 'message' => 'Data izin/sakit berhasil disimpan']);
-                } catch (PDOException $e2) {
-                    error_log("Error creating table and retrying: " . $e2->getMessage());
-                    error_log("Error details: " . print_r($e2, true));
-                    jsonResponse(['ok' => false, 'message' => 'Gagal menyimpan data. Silakan coba lagi.'], 500);
-                }
-            } else if (strpos($e->getMessage(), '1062') !== false || stripos($e->getMessage(), 'Duplicate') !== false) {
-                // Duplicate key: update existing row to be idempotent
-                error_log("submit_izin_sakit: Duplicate detected, performing update");
-                try {
-                    $upd = $pdo->prepare("UPDATE attendance_notes SET type=:type, keterangan=:keterangan, bukti=:bukti WHERE user_id=:uid AND `date`=:date");
-                    $upd->execute([
-                        ':type' => $type,
-                        ':keterangan' => $alasan,
-                        ':bukti' => $bukti,
-                        ':uid' => $user_id,
-                        ':date' => $today
-                    ]);
-                    triggerDatabaseBackup();
-                    jsonResponse(['ok' => true, 'message' => 'Data izin/sakit berhasil diperbarui']);
-                } catch (PDOException $e3) {
-                    error_log("submit_izin_sakit: Update after duplicate failed: " . $e3->getMessage());
-                    jsonResponse(['ok' => false, 'message' => 'Gagal memperbarui data. Silakan coba lagi.'], 500);
-                }
-            } else {
-                error_log("submit_izin_sakit: Other database error occurred");
-                jsonResponse(['ok' => false, 'message' => 'Gagal menyimpan data. Silakan coba lagi.'], 500);
-            }
+            error_log("submit_izin_sakit error: " . $e->getMessage());
+            jsonResponse(['ok' => false, 'message' => 'Gagal mengirim request. Silakan coba lagi.'], 500);
         }
     }
 

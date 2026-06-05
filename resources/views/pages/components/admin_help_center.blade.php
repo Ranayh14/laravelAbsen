@@ -517,7 +517,11 @@
                 container.innerHTML = res.data.map(r => {
                     const statusBadge = renderStatusBadge(r.status);
                     let typeLabel = r.request_type;
-                    if (r.request_type === 'past_attendance') typeLabel = '<i class="fi fi-rr-calendar-clock text-blue-500"></i> Lupa Presensi';
+                    if (r.request_type === 'past_attendance') {
+                        if (r.jenis_izin === 'izin') typeLabel = '<i class="fi fi-rr-calendar-clock text-blue-500"></i> Request Izin';
+                        else if (r.jenis_izin === 'sakit') typeLabel = '<i class="fi fi-rr-hospital text-rose-500"></i> Request Sakit';
+                        else typeLabel = '<i class="fi fi-rr-calendar-clock text-blue-500"></i> Lupa Presensi';
+                    }
                     else if (r.request_type === 'bug_report') typeLabel = '<i class="fi fi-rr-bug text-red-500"></i> Laporan Bug';
                     else if (r.request_type === 'late_attendance') {
                         // 'pulang_lebih_awal|' prefix in attendance_reason identifies auto-generated early checkout requests
