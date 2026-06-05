@@ -1089,28 +1089,15 @@ async function api(url, data, opts){
             // Try to parse error response as JSON to check for special requirements
             try {
                 const errorJson = JSON.parse(errorText);
-                if (errorJson.need_reason || errorJson.need_overtime_reason || errorJson.need_early_leave_reason) {
-                    // Return the error response directly instead of throwing
-                    // This allows the calling function to handle modals for WFA/Overtime/Early Leave
-                    return errorJson;
+                if (!options.suppressModal && errorJson.message) {
+                    showModalNotif(errorJson.message, false, 'Gagal');
                 }
+                return errorJson; // Return parsed JSON error response directly
             } catch (parseError) {
                 // If not JSON, continue with normal error handling
             }
             
-            // Try to parse error response to get specific message
             let errorMessage = `Terjadi kesalahan (${res.status})`;
-            try {
-                const errorJson = JSON.parse(errorText);
-                if (errorJson.message) {
-                    errorMessage = errorJson.message;
-                } else if (errorJson.error) {
-                    errorMessage = errorJson.error;
-                }
-            } catch (e) {
-                // Use default message
-            }
-            
             if (!options.suppressModal) {
                 showModalNotif(errorMessage, false, 'Gagal');
             }
@@ -2998,6 +2985,7 @@ document.addEventListener('click', async (e)=>{
 memberForm && memberForm.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const id = qs('#member-id').value;
+    const foto = fotoDataUrlInput.value;
     const payload = {
         id,
         email: qs('#email').value,
@@ -3005,9 +2993,54 @@ memberForm && memberForm.addEventListener('submit', async (e)=>{
         nama: qs('#nama').value,
         prodi: qs('#prodi').value,
         startup: qs('#startup').value,
-        foto: fotoDataUrlInput.value,
+        foto: foto,
     };
     if(!id){ payload.password = qs('#password-new').value; const confirm = qs('#password-confirm').value; if(!payload.password || payload.password!==confirm){ showNotif('Password admin untuk member baru wajib dan harus cocok'); return; } }
+    
+    // If photo is modified/supplied, compute face embedding & landmarks on the client
+    if (foto && (foto.startsWith('data:image/') || foto.startsWith('blob:'))) {
+        showNotif('Memproses foto & memverifikasi wajah... Mohon tunggu.', true);
+        try {
+            // Ensure face-api models are loaded
+            if (!window.faceApiModelsLoaded) {
+                const MODEL_PATH = window.FACEAPI_MODEL_URL || 'assets/face-models';
+                await Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_PATH),
+                    faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_PATH),
+                    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_PATH)
+                ]);
+                window.faceApiModelsLoaded = true;
+            }
+            
+            const img = await faceapi.fetchImage(foto);
+            const detection = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.3 }))
+                .withFaceLandmarks().withFaceDescriptor();
+                
+            if (!detection) {
+                if (typeof showModalNotif === 'function') {
+                    showModalNotif('Wajah tidak terdeteksi pada foto! Pastikan wajah terlihat jelas, tegak lurus, dan pencahayaannya cukup.', false, 'Verifikasi Gagal');
+                } else {
+                    alert('Wajah tidak terdeteksi pada foto! Silakan gunakan foto lain.');
+                }
+                return;
+            }
+            
+            // Normalize landmarks relative to face bounding box
+            const box = detection.detection.box;
+            const normLandmarks = detection.landmarks.positions.map(p => ({
+                x: parseFloat(((p.x - box.x) / box.width).toFixed(4)),
+                y: parseFloat(((p.y - box.y) / box.height).toFixed(4))
+            }));
+            
+            payload.embedding = JSON.stringify(Array.from(detection.descriptor));
+            payload.landmarks = JSON.stringify(normLandmarks);
+            showNotif('Wajah terdeteksi and data wajah berhasil dihitung!', true);
+        } catch (err) {
+            console.error('Error pre-computing face embedding:', err);
+            showNotif('Gagal memproses data wajah. Menyimpan tanpa data wajah...', false);
+        }
+    }
+    
     const r = await api('?ajax=save_member', payload);
     if(r.ok){ 
         renderMembers(); 

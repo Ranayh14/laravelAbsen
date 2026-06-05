@@ -282,9 +282,22 @@
 <script>
 
 document.addEventListener('DOMContentLoaded', () => {
-    const page = new URLSearchParams(window.location.search).get('page');
+    const urlParams = new URLSearchParams(window.location.search);
+    let page = urlParams.get('page');
+    if (!page) {
+        const pathParts = window.location.pathname.split('/').filter(Boolean);
+        page = pathParts[pathParts.length - 1];
+    }
+    
     // Short delay to ensure libraries load
-    setTimeout(() => {
+    setTimeout(async () => {
+        // Load face recognition settings dynamically from database first
+        if (typeof window.initializeFaceRecognition === 'function') {
+            await window.initializeFaceRecognition();
+        } else {
+            console.warn('window.initializeFaceRecognition function not found. Scans might use defaults.');
+        }
+
         if(typeof startScan === 'function') {
             if(page === 'presensi-masuk') startScan('masuk');
             if(page === 'presensi-pulang') startScan('pulang');

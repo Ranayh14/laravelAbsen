@@ -213,14 +213,34 @@ if (isset($_REQUEST['ajax'])) {
         if ($password !== $password2) jsonResponse(['ok' => false, 'message' => 'Konfirmasi password tidak cocok'], 400);
         if (!$email || !$nim || !$nama || !$prodi || !$password || !$foto) jsonResponse(['ok' => false, 'message' => 'Semua field wajib diisi (termasuk foto)'], 400);
         
+        // 1. Validate email format
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            jsonResponse(['ok' => false, 'message' => 'Format alamat email tidak valid'], 400);
+        }
+        
+        // 2. Validate password length (at least 6 characters)
+        if (strlen($password) < 6) {
+            jsonResponse(['ok' => false, 'message' => 'Password minimal harus 6 karakter'], 400);
+        }
+        
         // Check image size (max 1MB)
         if (!checkImageSize($foto, 1)) {
             jsonResponse(['ok' => false, 'message' => 'Ukuran foto terlalu besar. Maksimal 1MB. Silakan kompres foto atau gunakan foto dengan resolusi lebih kecil.'], 400);
         }
-        // Disallow duplicate email or nim
-        $check = $pdo->prepare("SELECT id FROM users WHERE email=:email OR nim=:nim LIMIT 1");
-        $check->execute([':email' => $email, ':nim' => $nim]);
-        if ($check->fetch()) jsonResponse(['ok' => false, 'message' => 'Email atau NIM sudah terdaftar'], 400);
+        
+        // 3. Disallow duplicate email (checked separately)
+        $checkEmail = $pdo->prepare("SELECT id FROM users WHERE email=:email LIMIT 1");
+        $checkEmail->execute([':email' => $email]);
+        if ($checkEmail->fetch()) {
+            jsonResponse(['ok' => false, 'message' => 'Alamat email sudah terdaftar'], 400);
+        }
+        
+        // 4. Disallow duplicate nim (checked separately)
+        $checkNim = $pdo->prepare("SELECT id FROM users WHERE nim=:nim LIMIT 1");
+        $checkNim->execute([':nim' => $nim]);
+        if ($checkNim->fetch()) {
+            jsonResponse(['ok' => false, 'message' => 'NIM sudah terdaftar'], 400);
+        }
 
         $hash = password_hash($password, PASSWORD_BCRYPT);
         $stmt = $pdo->prepare("INSERT INTO users (role, email, nim, nama, prodi, startup, foto_base64, password) VALUES ('pegawai', :email, :nim, :nama, :prodi, :startup, :foto, :hash)");
@@ -734,8 +754,20 @@ if (isset($_REQUEST['ajax'])) {
                 $foto = saveBase64Image($foto, 'users');
                 $setParts[] = 'foto_base64=:foto';
                 $params[':foto'] = $foto;
-                // CRITICAL: Clear face_embedding_128 so it's recomputed from new photo
-                $setParts[] = 'face_embedding_128=NULL';
+                
+                $embedding = $_POST['embedding'] ?? null;
+                $landmarks = $_POST['landmarks'] ?? null;
+                if ($embedding) {
+                    $setParts[] = 'face_embedding_128=:embedding';
+                    $params[':embedding'] = $embedding;
+                    if ($landmarks) {
+                        $setParts[] = 'face_landmarks=:landmarks';
+                        $params[':landmarks'] = $landmarks;
+                    }
+                } else {
+                    $setParts[] = 'face_embedding_128=NULL';
+                    $setParts[] = 'face_landmarks=NULL';
+                }
             }
             
             $sql = "UPDATE users SET " . implode(', ', $setParts) . " WHERE id=:id";
@@ -761,7 +793,11 @@ if (isset($_REQUEST['ajax'])) {
             if (!$email || !$password) jsonResponse(['ok' => false, 'message' => 'Email dan password wajib untuk member baru'], 400);
             $hash = password_hash($password, PASSWORD_BCRYPT);
             $foto = saveBase64Image($foto, 'users');
-            $stmt = $pdo->prepare("INSERT INTO users (role, email, nim, nama, prodi, startup, foto_base64, password) VALUES ('pegawai', :email, :nim, :nama, :prodi, :startup, :foto, :hash)");
+            
+            $embedding = $_POST['embedding'] ?? null;
+            $landmarks = $_POST['landmarks'] ?? null;
+            
+            $stmt = $pdo->prepare("INSERT INTO users (role, email, nim, nama, prodi, startup, foto_base64, password, face_embedding_128, face_landmarks) VALUES ('pegawai', :email, :nim, :nama, :prodi, :startup, :foto, :hash, :embedding, :landmarks)");
             $stmt->execute([
                 ':email' => $email,
                 ':nim' => $nim,
@@ -770,6 +806,8 @@ if (isset($_REQUEST['ajax'])) {
                 ':startup' => $startup ?: null,
                 ':foto' => $foto,
                 ':hash' => $hash,
+                ':embedding' => $embedding ?: null,
+                ':landmarks' => $landmarks ?: null,
             ]);
             
             // Trigger backup setelah menambah user baru
@@ -1464,8 +1502,9 @@ if (isset($_REQUEST['ajax'])) {
                 // Radius WFO maksimal 800 meter untuk mencakup seluruh area kampus FIT
                 $wfoRadius = min((int)getSetting($pdo, 'wfo_radius_m', '800'), 1500);
                 
-                // Hitung jarak GPS ke gedung FIT menggunakan Haversine formula
+                // Hitung jarak GPS menggunakan Haversine formula
                 $distance = null;
+                $distanceToFit = null;
                 $isInsideRadius = false;
                 if ($lat !== null && $lng !== null) {
                     $earth = 6371000; // meters
@@ -1474,12 +1513,20 @@ if (isset($_REQUEST['ajax'])) {
                     $a = sin($dLat/2) * sin($dLat/2) + cos(deg2rad($lat)) * cos(deg2rad($wfoLat)) * sin($dLng/2) * sin($dLng/2);
                     $c = 2 * atan2(sqrt($a), sqrt(1-$a));
                     $distance = $earth * $c;
-                    // STRICT: Radius WFO max 200m agar tidak mencakup perumahan sekitar kampus.
-                    // Gedung FIT Telkom University (koordinat presisi): -6.97662, 107.63273
-                    // Perumahan/kos-kosan mulai dari radius ~120-200m ke luar kampus.
-                    $effectiveRadius = min($wfoRadius, 600); // Max 600m — covers full TelU campus area
+                    
+                    // Hitung jarak ke Gedung FIT (untuk backup geofencing drift)
+                    $fitLat = -6.97662;
+                    $fitLng = 107.63273;
+                    $dLatFit = deg2rad($fitLat - $lat);
+                    $dLngFit = deg2rad($fitLng - $lng);
+                    $aFit = sin($dLatFit/2) * sin($dLatFit/2) + cos(deg2rad($lat)) * cos(deg2rad($fitLat)) * sin($dLngFit/2) * sin($dLngFit/2);
+                    $cFit = 2 * atan2(sqrt($aFit), sqrt(1-$aFit));
+                    $distanceToFit = $earth * $cFit;
+
+                    // STRICT: Use the exact radius setting configured by the admin dynamically
+                    $effectiveRadius = $wfoRadius;
                     $isInsideRadius = ($distance <= $effectiveRadius);
-                    error_log("WFO GPS Check - Jarak ke FIT: " . round($distance) . "m, Radius: {$effectiveRadius}m, Inside: " . ($isInsideRadius ? 'YES' : 'NO'));
+                    error_log("WFO GPS Check - Jarak ke Kantor: " . round($distance) . "m, Jarak ke FIT: " . round($distanceToFit) . "m, Radius WFO: {$effectiveRadius}m, Inside: " . ($isInsideRadius ? 'YES' : 'NO'));
                 }
                 
                 // Validasi IP Address FIT
@@ -1519,13 +1566,13 @@ if (isset($_REQUEST['ajax'])) {
                 // KEPUTUSAN FINAL WFO/WFA — SMART CAMPUS GEOFENCING:
                 //   WFO jika:
                 //     a) IP terdeteksi jaringan TelU (WiFi/LAN kampus) — bukti kuat
-                //     b) ATAU GPS berada dalam radius dekat Gedung FIT (<= 120m)
-                //     c) ATAU GPS berada dalam radius kampus (650m) DAN alamat geocode
-                //        membuktikan berada di dalam area Telkom University (memiliki keyword
-                //        kampus dan tidak memiliki keyword kos/gang/rumah/sukabirus).
+                //     b) ATAU GPS berada dalam radius dekat Gedung FIT (sesuai setting admin)
+                //     c) ATAU GPS berada dalam radius dekat Gedung FIT (<= 250m tolerance for GPS drift)
+                //        DAN alamat geocode membuktikan berada di area FIT Telkom University
+                //        (memiliki keyword kampus FIT dan tidak memiliki keyword kos/gang/rumah/sukabirus).
                 // =========================================================
                 $isInsideCampusGeofence = false;
-                if ($distance !== null && $distance <= 650) {
+                if ($distanceToFit !== null && $distanceToFit <= 250) {
                     $lowerLokasi = strtolower($lokasi);
                     
                     // Keyword valid area internal Telkom University

@@ -146,9 +146,6 @@ class PerformanceOptimizer {
             // Preload Face API models
             await this.preloadFaceAPIModels();
             
-            // Preload user data
-            await this.preloadUserData();
-            
             console.log('Critical resources preloaded');
             
         } catch (error) {
@@ -171,12 +168,11 @@ class PerformanceOptimizer {
             }
             await faceapi.tf.ready();
             
-            const MODEL_URL = (window.FACEAPI_MODEL_URL || 'assets/js/face-api-models');
+            const MODEL_URL = (window.FACEAPI_MODEL_URL || 'assets/face-models');
             await Promise.all([
                 faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
                 faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-                faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-                faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL)
+                faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
             ]);
             window.faceApiModelsLoaded = true;
             console.log('Face API models preloaded (Backend:', faceapi.tf.getBackend(), ')');
@@ -184,52 +180,6 @@ class PerformanceOptimizer {
             console.error('Error preloading Face API models:', error);
         } finally {
             window.loadingFaceApiModels = false;
-        }
-    }
-
-    /**
-     * Preload user data
-     */
-    async preloadUserData() {
-        // Optimization: Only preload all members if on attendance page or admin dashboard
-        const urlParams = new URLSearchParams(window.location.search);
-        const page = urlParams.get('page');
-        const isAttendancePage = page && page.includes('presensi');
-        const isAdmin = window.USER_ROLE === 'admin';
-        
-        // Employees don't need all members' face data on random pages
-        if (!isAttendancePage && !isAdmin) return;
-
-        try {
-            // If on attendance page and mode is late_req, only load current user
-            const isLateReq = urlParams.get('mode') === 'late_req';
-            const action = (isLateReq && !isAdmin) ? 'get_current_user_descriptor' : 'get_members';
-            
-            const response = await fetch('/', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: new URLSearchParams({ ajax: action, light: 1 })
-            });
-
-            const text = await response.text();
-            try {
-                const data = JSON.parse(text);
-                if (data && data.ok && Array.isArray(data.data)) {
-                    this.userData = data.data;
-                    console.log('User data preloaded:', this.userData.length, 'members');
-                    
-                    // Create map for quick lookup
-                    this.userData.forEach(user => {
-                        this.userMap.set(user.nama.toLowerCase(), user);
-                    });
-                }
-            } catch (e) {
-                console.error('Error parsing user data JSON:', e);
-                console.log('Raw response:', text);
-                // Don't throw, just log
-            }
-        } catch (error) {
-            console.error('Error preloading user data:', error);
         }
     }
 

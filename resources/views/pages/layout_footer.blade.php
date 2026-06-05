@@ -219,50 +219,79 @@ window.speak = function(text, rate = 1.0) {
     }, 50);
 };
 
+// BALANCED ACCURACY: Detection config optimized for good accuracy while still detecting faces reliably
+window.detectionConfig = window.detectionConfig || {};
+Object.assign(window.detectionConfig, {
+    faceMatcherThreshold: 0.38,
+    recognitionThreshold: 0.38,
+    inputSize: 416,
+    scoreThreshold: 0.35,
+    minFaceSize: 70,
+    maxFaces: 1,
+    confidenceThreshold: 0.7,
+    detectionThrottle: 2,
+    qualityThreshold: 0.55,
+    landmarkThreshold: 0.55,
+    expressionThreshold: 0.55,
+    landmarkWeight: 0.5,
+    descriptorWeight: 0.5,
+    genderValidation: true,
+    multiAttemptValidation: true,
+    strictMode: true
+});
+
+// Load face recognition settings from backend
+window.loadFaceRecognitionSettings = async function() {
+    try {
+        const settingsJson = await api('?ajax=get_settings', {}, { suppressModal: true, cache: false });
+        if (settingsJson.ok && settingsJson.data) {
+            const settings = settingsJson.data;
+            if (settings.face_recognition_threshold?.value) {
+                window.detectionConfig.faceMatcherThreshold = parseFloat(settings.face_recognition_threshold.value) || 0.38;
+                window.detectionConfig.recognitionThreshold = parseFloat(settings.face_recognition_threshold.value) || 0.38;
+            }
+            if (settings.face_recognition_min_confidence?.value) {
+                window.detectionConfig.minConfidencePercent = parseFloat(settings.face_recognition_min_confidence.value) || 65;
+                console.log(`[Settings] Min confidence loaded: ${window.detectionConfig.minConfidencePercent}%`);
+            }
+            if (settings.face_recognition_input_size?.value) {
+                window.detectionConfig.inputSize = parseInt(settings.face_recognition_input_size.value) || 416;
+            }
+            if (settings.face_recognition_score_threshold?.value) {
+                window.detectionConfig.scoreThreshold = parseFloat(settings.face_recognition_score_threshold.value) || 0.35;
+            }
+            if (settings.face_recognition_quality_threshold?.value) {
+                window.detectionConfig.qualityThreshold = parseFloat(settings.face_recognition_quality_threshold.value) || 0.55;
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to load face recognition settings, using defaults:', e);
+    }
+};
+
 // Initialize face recognition system
 window.initializeFaceRecognition = async function() {
     try {
         const urlParams = new URLSearchParams(window.location.search);
-        const isLandingPage = urlParams.get('page') === 'landing';
-        const isPresensiPage = document.getElementById('page-presensi') !== null;
+        let page = urlParams.get('page');
+        if (!page) {
+            const pathParts = window.location.pathname.split('/').filter(Boolean);
+            page = pathParts[pathParts.length - 1];
+        }
+        const isScanPage = page === 'presensi-masuk' || page === 'presensi-pulang';
         
-        if (!isLandingPage && !isPresensiPage) {
-            console.log('Skipping face recognition initialization on non-attendance page');
+        if (!isScanPage) {
+            console.log('Skipping face recognition initialization on non-attendance page:', page);
             return;
         }
 
-        console.log('Initializing face recognition system...');
-        if (typeof loadFaceRecognitionSettings === 'function') {
-            await loadFaceRecognitionSettings();
+        console.log('Initializing face recognition system (settings load only)...');
+        if (typeof window.loadFaceRecognitionSettings === 'function') {
+            await window.loadFaceRecognitionSettings();
         }
         
-        // Pre-warm: store the promise so startScan can await it instead of double-loading
-        if (!window._preWarmReady) {
-            window._preWarmReady = (async () => {
-                if (typeof loadPresensiFaceModels === 'function') {
-                    await loadPresensiFaceModels();
-                }
-            })().catch(e => console.warn('Pre-warm failed silently:', e));
-        }
-        
-        // BACKGROUND PRELOAD: Load descriptors + build faceMatcher BEFORE user clicks
-        // This eliminates the "Menunggu data..." delay entirely
-        window._preWarmReady.then(async () => {
-            try {
-                if (labeledFaceDescriptors.length === 0) {
-                    console.log('📋 Background preloading face descriptors...');
-                    await loadLabeledFaceDescriptors();
-                }
-                if (labeledFaceDescriptors.length > 0 && !faceMatcher) {
-                    faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.5);
-                    console.log(`✅ FaceMatcher prebuilt with ${labeledFaceDescriptors.length} members — scan will be instant!`);
-                }
-            } catch (e) {
-                console.warn('Background descriptor preload failed:', e);
-            }
-        });
-        
-        console.log('✅ Face recognition system pre-warm started');
+        // Delegate actual model loading to attendance.js when the video scanning starts.
+        console.log('✅ Settings loaded. Model pre-load delegated to attendance.js');
     } catch (error) {
         console.error('❌ Failed to initialize face recognition:', error);
     }
@@ -1000,12 +1029,10 @@ async function api(url, data, opts){
             if (isJson) {
                 try {
                     const errorJson = JSON.parse(errorText);
-                    if (errorJson.need_reason || errorJson.need_overtime_reason || errorJson.need_early_leave_reason) {
-                        return errorJson;
-                    }
                     if (!options.suppressModal && errorJson.message) {
                         showModalNotif(errorJson.message, false, 'Gagal');
                     }
+                    return errorJson; // Return the parsed error JSON directly so the caller can handle it
                 } catch (e) {}
             } else {
                 if (!options.suppressModal) {
@@ -1131,15 +1158,38 @@ if (loginForm) {
     loginForm.addEventListener('submit', async (e)=>{
         e.preventDefault();
         const fd = new FormData(e.target);
-        const r = await api('?ajax=login', fd);
         const msg = qs('#login-msg');
-        if(r.ok){
-            msg.className = 'text-green-600';
-            msg.textContent = 'Login berhasil. Mengalihkan...';
-            setTimeout(()=> location.href='?page=dashboard', 200); // Redirect to dashboard to trigger auth check
-        } else {
-            msg.className = 'text-red-600';
-            msg.textContent = r.message || 'Gagal login';
+        const submitBtn = e.target.querySelector('button');
+        
+        msg.className = 'text-blue-600 font-semibold';
+        msg.textContent = '⏳ Memproses login...';
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.classList.add('opacity-70', 'cursor-not-allowed');
+        }
+        
+        try {
+            const r = await api('?ajax=login', fd);
+            if(r && r.ok){
+                msg.className = 'text-green-600 font-semibold';
+                msg.textContent = '✅ Login berhasil! Mengalihkan...';
+                setTimeout(()=> location.href='?', 200); // Faster redirect
+            } else {
+                msg.className = 'text-red-600 font-semibold';
+                msg.textContent = '❌ ' + ((r && r.message) ? r.message : 'Gagal login');
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+                }
+            }
+        } catch (error) {
+            console.error('Login error:', error);
+            msg.className = 'text-red-600 font-semibold';
+            msg.textContent = '❌ ' + (error.message || 'Gagal login. Periksa koneksi internet Anda.');
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+            }
         }
     });
 }
@@ -1272,21 +1322,76 @@ if (registerForm) {
         e.preventDefault();
         const fd = new FormData(e.target);
         const msg = qs('#register-msg');
-        // FIX: Use suppressModal=true to control modal display ourselves
-        // This prevents false error modal when registration is actually successful
-        const r = await api('?ajax=register', fd, { suppressModal: true });
-        if(r && r.ok){ 
-            msg.className='text-green-600 font-semibold';
-            msg.textContent='✅ Registrasi berhasil! Mengalihkan ke halaman login...';
-            showNotif('Registrasi berhasil!', true);
-            setTimeout(()=>location.href='?page=login', 1500);
-        } else {
-            // Show clear, user-friendly error message
-            const errMsg = (r && r.message) ? r.message : 'Gagal registrasi. Periksa data Anda dan coba lagi.';
+        const submitBtn = e.target.querySelector('button');
+        
+        // Show loading state
+        msg.className = 'text-blue-600 font-semibold';
+        msg.textContent = '⏳ Mendaftarkan akun... Mohon tunggu...';
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.classList.add('opacity-70', 'cursor-not-allowed');
+        }
+        
+        try {
+            // Use suppressModal=true to control modal display ourselves
+            const r = await api('?ajax=register', fd, { suppressModal: true });
+            if(r && r.ok){ 
+                msg.className='text-green-600 font-semibold';
+                msg.textContent='✅ Registrasi berhasil! Mengalihkan ke halaman login...';
+                
+                // Show beautiful success modal in general language
+                showModalNotif('Pendaftaran akun Anda berhasil dilakukan! Silakan klik tombol di bawah untuk masuk ke halaman login.', true, 'Pendaftaran Berhasil');
+                setTimeout(()=>location.href='?page=login', 2500);
+            } else {
+                // Get backend raw message
+                const rawMsg = (r && r.message) ? r.message : '';
+                
+                // Map backend errors to very user-friendly, general language messages
+                let friendlyMsg = 'Pendaftaran gagal. Silakan periksa kembali data yang Anda masukkan dan coba lagi.';
+                if (rawMsg.includes('password tidak cocok')) {
+                    friendlyMsg = 'Kata sandi (password) baru dan konfirmasi kata sandi yang Anda masukkan tidak sama. Silakan ketik ulang dengan benar.';
+                } else if (rawMsg.includes('wajib diisi')) {
+                    friendlyMsg = 'Semua data formulir pendaftaran dan foto wajah wajib diisi dengan lengkap. Silakan periksa kembali kolom formulir yang masih kosong.';
+                } else if (rawMsg.includes('email sudah terdaftar')) {
+                    friendlyMsg = 'Alamat email yang Anda masukkan sudah terdaftar di sistem. Silakan gunakan email lain, atau masuk (login) jika sudah memiliki akun.';
+                } else if (rawMsg.includes('NIM sudah terdaftar')) {
+                    friendlyMsg = 'NIM atau NIP yang Anda masukkan sudah terdaftar di sistem. Silakan periksa kembali nomor identitas Anda.';
+                } else if (rawMsg.includes('format alamat email')) {
+                    friendlyMsg = 'Format alamat email yang Anda masukkan salah atau tidak valid (contoh: nama@domain.com). Silakan periksa kembali.';
+                } else if (rawMsg.includes('minimal harus 6 karakter')) {
+                    friendlyMsg = 'Kata sandi (password) yang Anda masukkan terlalu pendek. Password minimal harus terdiri dari 6 karakter.';
+                } else if (rawMsg.includes('terlalu besar')) {
+                    friendlyMsg = 'Ukuran foto wajah Anda terlalu besar (maksimal 1MB). Silakan kompres foto tersebut terlebih dahulu atau gunakan foto dengan resolusi lebih kecil.';
+                } else if (rawMsg) {
+                    friendlyMsg = rawMsg;
+                }
+                
+                msg.className='text-red-600 font-semibold';
+                msg.textContent='❌ ' + friendlyMsg;
+                
+                // Show modal error message
+                showModalNotif(friendlyMsg, false, 'Pendaftaran Gagal');
+                
+                // Re-enable button
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+                }
+            }
+        } catch (error) {
+            console.error('Registration error:', error);
+            const errMsg = 'Tidak dapat terhubung ke server. Silakan pastikan perangkat Anda terhubung ke internet dan coba beberapa saat lagi.';
             msg.className='text-red-600 font-semibold';
             msg.textContent='❌ ' + errMsg;
-            // Also show a toast notification for visibility
-            showNotif(errMsg, false);
+            
+            // Show modal network error message
+            showModalNotif(errMsg, false, 'Koneksi Bermasalah');
+            
+            // Re-enable button
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+            }
         }
     });
 }
@@ -1344,19 +1449,39 @@ if (verifyOtpForm) {
         e.preventDefault();
         const fd = new FormData(e.target);
         const msg = qs('#verify-otp-msg');
-        msg.className = 'text-blue-600';
-        msg.textContent = 'Memverifikasi OTP...';
+        const submitBtn = e.target.querySelector('button');
         
-        const r = await api('?ajax=verify_otp', fd);
-        if(r.ok){
-            msg.className = 'text-green-600';
-            msg.textContent = r.message || 'OTP berhasil diverifikasi.';
-            setTimeout(()=>{
-                window.location.href = '?page=reset-password&token=' + encodeURIComponent(r.token || fd.get('token'));
-            }, 1500);
-        } else {
-            msg.className = 'text-red-600';
-            msg.textContent = r.message || 'Kode OTP tidak valid';
+        msg.className = 'text-blue-600 font-semibold';
+        msg.textContent = '⏳ Memverifikasi OTP...';
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.classList.add('opacity-70', 'cursor-not-allowed');
+        }
+        
+        try {
+            const r = await api('?ajax=verify_otp', fd);
+            if(r && r.ok){
+                msg.className = 'text-green-600 font-semibold';
+                msg.textContent = '✅ ' + (r.message || 'OTP berhasil diverifikasi.');
+                setTimeout(()=>{
+                    window.location.href = '?page=reset-password&token=' + encodeURIComponent(r.token || fd.get('token'));
+                }, 1500);
+            } else {
+                msg.className = 'text-red-600 font-semibold';
+                msg.textContent = '❌ ' + ((r && r.message) ? r.message : 'Kode OTP tidak valid');
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+                }
+            }
+        } catch (error) {
+            console.error('Verify OTP error:', error);
+            msg.className = 'text-red-600 font-semibold';
+            msg.textContent = '❌ ' + (error.message || 'Gagal memverifikasi OTP. Coba lagi.');
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+            }
         }
     });
     
@@ -1382,19 +1507,39 @@ if (resetPasswordForm) {
         e.preventDefault();
         const fd = new FormData(e.target);
         const msg = qs('#reset-password-msg');
-        msg.className = 'text-blue-600';
-        msg.textContent = 'Mereset password...';
+        const submitBtn = e.target.querySelector('button');
         
-        const r = await api('?ajax=reset_password', fd);
-        if(r.ok){
-            msg.className = 'text-green-600';
-            msg.textContent = r.message || 'Password berhasil direset.';
-            setTimeout(()=>{
-                window.location.href = '?page=login';
-            }, 2000);
-        } else {
-            msg.className = 'text-red-600';
-            msg.textContent = r.message || 'Gagal mereset password';
+        msg.className = 'text-blue-600 font-semibold';
+        msg.textContent = '⏳ Mereset password...';
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.classList.add('opacity-70', 'cursor-not-allowed');
+        }
+        
+        try {
+            const r = await api('?ajax=reset_password', fd);
+            if(r && r.ok){
+                msg.className = 'text-green-600 font-semibold';
+                msg.textContent = '✅ ' + (r.message || 'Password berhasil direset.');
+                setTimeout(()=>{
+                    window.location.href = '?page=login';
+                }, 2000);
+            } else {
+                msg.className = 'text-red-600 font-semibold';
+                msg.textContent = '❌ ' + ((r && r.message) ? r.message : 'Gagal mereset password');
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+                }
+            }
+        } catch (error) {
+            console.error('Reset password error:', error);
+            msg.className = 'text-red-600 font-semibold';
+            msg.textContent = '❌ ' + (error.message || 'Gagal mereset password. Coba lagi.');
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+            }
         }
     });
 }
@@ -1653,55 +1798,8 @@ let performanceStats = {
     lastDetectionTime: 0
 };
 
-// BALANCED ACCURACY: Detection config optimized for good accuracy while still detecting faces reliably
-// Will be loaded from settings on page load
-let detectionConfig = {
-    faceMatcherThreshold: 0.38, // Will be loaded from settings
-    recognitionThreshold: 0.38, // Will be loaded from settings
-    inputSize: 416, // Will be loaded from settings
-    scoreThreshold: 0.35, // Will be loaded from settings
-    minFaceSize: 70, // Slightly smaller for easier detection (was 80)
-    maxFaces: 1, // Limit to 1 face for processing
-    confidenceThreshold: 0.7, // Balanced confidence requirement (was 0.75)
-    detectionThrottle: 2, // Slightly slower but more accurate detection
-    qualityThreshold: 0.55, // Will be loaded from settings
-    landmarkThreshold: 0.55, // More lenient landmark threshold - easier detection while maintaining accuracy (was 0.65)
-    expressionThreshold: 0.55, // Balanced expression threshold (was 0.6)
-    landmarkWeight: 0.5, // Balanced weight
-    descriptorWeight: 0.5, // Balanced weight
-    genderValidation: true, // Enable gender validation for better accuracy (prevents cross-gender misdetection)
-    multiAttemptValidation: true, // Enable multi-attempt validation for accuracy
-    strictMode: true // Enable strict mode for maximum accuracy
-};
-
-// Load face recognition settings from backend
-async function loadFaceRecognitionSettings() {
-    try {
-        const settingsJson = await api('?ajax=get_settings', {}, { suppressModal: true, cache: true, ttl: 300000 });
-        if (settingsJson.ok && settingsJson.data) {
-            const settings = settingsJson.data;
-            if (settings.face_recognition_threshold?.value) {
-                detectionConfig.faceMatcherThreshold = parseFloat(settings.face_recognition_threshold.value) || 0.38;
-                detectionConfig.recognitionThreshold = parseFloat(settings.face_recognition_threshold.value) || 0.38;
-            }
-            if (settings.face_recognition_min_confidence?.value) {
-                detectionConfig.minConfidencePercent = parseFloat(settings.face_recognition_min_confidence.value) || 65;
-                console.log(`[Settings] Min confidence loaded: ${detectionConfig.minConfidencePercent}%`);
-            }
-            if (settings.face_recognition_input_size?.value) {
-                detectionConfig.inputSize = parseInt(settings.face_recognition_input_size.value) || 416;
-            }
-            if (settings.face_recognition_score_threshold?.value) {
-                detectionConfig.scoreThreshold = parseFloat(settings.face_recognition_score_threshold.value) || 0.35;
-            }
-            if (settings.face_recognition_quality_threshold?.value) {
-                detectionConfig.qualityThreshold = parseFloat(settings.face_recognition_quality_threshold.value) || 0.55;
-            }
-        }
-    } catch (e) {
-        console.warn('Failed to load face recognition settings, using defaults:', e);
-    }
-}
+var detectionConfig = window.detectionConfig;
+var loadFaceRecognitionSettings = window.loadFaceRecognitionSettings;
 
 // Detect if device is mobile/phone (including mobile simulators)
 function isMobileDevice() {
@@ -6274,6 +6372,7 @@ document.addEventListener('click', async (e)=>{
 memberForm && memberForm.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const id = qs('#member-id').value;
+    const foto = fotoDataUrlInput.value;
     const payload = {
         id,
         email: qs('#email').value,
@@ -6281,9 +6380,54 @@ memberForm && memberForm.addEventListener('submit', async (e)=>{
         nama: qs('#nama').value,
         prodi: qs('#prodi').value,
         startup: qs('#startup').value,
-        foto: fotoDataUrlInput.value,
+        foto: foto,
     };
     if(!id){ payload.password = qs('#password-new').value; const confirm = qs('#password-confirm').value; if(!payload.password || payload.password!==confirm){ showNotif('Password admin untuk member baru wajib dan harus cocok'); return; } }
+    
+    // If photo is modified/supplied, compute face embedding & landmarks on the client
+    if (foto && (foto.startsWith('data:image/') || foto.startsWith('blob:'))) {
+        showNotif('Memproses foto & memverifikasi wajah... Mohon tunggu.', true);
+        try {
+            // Ensure face-api models are loaded
+            if (!window.faceApiModelsLoaded) {
+                const MODEL_PATH = window.FACEAPI_MODEL_URL || 'assets/face-models';
+                await Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_PATH),
+                    faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_PATH),
+                    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_PATH)
+                ]);
+                window.faceApiModelsLoaded = true;
+            }
+            
+            const img = await faceapi.fetchImage(foto);
+            const detection = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.3 }))
+                .withFaceLandmarks().withFaceDescriptor();
+                
+            if (!detection) {
+                if (typeof showModalNotif === 'function') {
+                    showModalNotif('Wajah tidak terdeteksi pada foto! Pastikan wajah terlihat jelas, tegak lurus, dan pencahayaannya cukup.', false, 'Verifikasi Gagal');
+                } else {
+                    alert('Wajah tidak terdeteksi pada foto! Silakan gunakan foto lain.');
+                }
+                return;
+            }
+            
+            // Normalize landmarks relative to face bounding box
+            const box = detection.detection.box;
+            const normLandmarks = detection.landmarks.positions.map(p => ({
+                x: parseFloat(((p.x - box.x) / box.width).toFixed(4)),
+                y: parseFloat(((p.y - box.y) / box.height).toFixed(4))
+            }));
+            
+            payload.embedding = JSON.stringify(Array.from(detection.descriptor));
+            payload.landmarks = JSON.stringify(normLandmarks);
+            showNotif('Wajah terdeteksi dan data wajah berhasil dihitung!', true);
+        } catch (err) {
+            console.error('Error pre-computing face embedding:', err);
+            showNotif('Gagal memproses data wajah. Menyimpan tanpa data wajah...', false);
+        }
+    }
+    
     const r = await api('?ajax=save_member', payload);
     if(r.ok){ 
         renderMembers(); 
@@ -9094,7 +9238,7 @@ async function renderMonthly() {
     // Load settings for max months back and end year
     let monthlyReportEndYear = 2026; // Default: 2026
     try {
-        const settingsJson = await api('?ajax=get_settings', {}, { suppressModal: true, cache: true, ttl: 300000 }); // Settings can be cached longer
+        const settingsJson = await api('?ajax=get_settings', {}, { suppressModal: true, cache: false }); // Settings fetched fresh
         if (settingsJson.ok && settingsJson.data) {
             if (settingsJson.data.max_monthly_report_months_back) {
                 window.maxMonthlyReportMonthsBack = parseInt(settingsJson.data.max_monthly_report_months_back.value) || 999;
@@ -9371,7 +9515,7 @@ qs('#export-presensi-form') && qs('#export-presensi-form').addEventListener('sub
 // Settings functions
 async function renderSettings() {
     try {
-        const result = await api('?ajax=get_settings', {}, { suppressModal: true, cache: true, ttl: 300000 });
+        const result = await api('?ajax=get_settings', {}, { suppressModal: true, cache: false });
         
         if (result.ok && result.data) {
             const settings = result.data;

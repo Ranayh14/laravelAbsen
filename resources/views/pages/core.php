@@ -1134,10 +1134,15 @@ function _isWfoByApiInternal(PDO $pdo, ?string $publicIp = null): bool {
 }
 
 function getSetting(PDO $pdo, string $key, string $default = ''): string {
+    static $cache = [];
+    if (array_key_exists($key, $cache)) {
+        return $cache[$key];
+    }
     $stmt = $pdo->prepare("SELECT setting_value FROM settings WHERE setting_key = :key LIMIT 1");
     $stmt->execute([':key' => $key]);
     $result = $stmt->fetch();
-    return $result ? $result['setting_value'] : $default;
+    $cache[$key] = $result ? $result['setting_value'] : $default;
+    return $cache[$key];
 }
 
 function setSetting(PDO $pdo, string $key, string $value): void {
@@ -2190,7 +2195,7 @@ function processEnhancedAttendance($base64Image) {
 }
 
 // KPI Calculation Functions
-function calculateKPIForEmployee(PDO $pdo, $userId, $periodStart = null, $periodEnd = null) {
+function calculateKPIForEmployee(PDO $pdo, $userId, $periodStart = null, $periodEnd = null, $preFetchedManualHolidays = null, $preFetchedSchedule = null) {
     try {
         // Get KPI settings
         $latePenaltyPerMinute = (float)getSetting($pdo, 'kpi_late_penalty_per_minute', '1');
@@ -2221,6 +2226,20 @@ function calculateKPIForEmployee(PDO $pdo, $userId, $periodStart = null, $period
         }
         if (!$periodEnd) {
             $periodEnd = date('Y-m-d');
+        }
+        
+        // Fetch manual holidays if not passed
+        if ($preFetchedManualHolidays === null) {
+            $manualHolidaysList = getManualHolidaysInRange($pdo, $periodStart, $periodEnd);
+            $preFetchedManualHolidays = [];
+            foreach ($manualHolidaysList as $mh) {
+                $preFetchedManualHolidays[$mh['date']] = true;
+            }
+        }
+        
+        // Fetch schedule if not passed
+        if ($preFetchedSchedule === null) {
+            $preFetchedSchedule = getEmployeeWorkSchedule($pdo, $userId);
         }
         
         // Debug logging for period
@@ -2363,7 +2382,7 @@ function calculateKPIForEmployee(PDO $pdo, $userId, $periodStart = null, $period
         }
         
         // Generate working days for this specific employee in the period
-        $workingDays = getEmployeeWorkingDaysInPeriod($pdo, $userId, $periodStart, $periodEnd);
+        $workingDays = getEmployeeWorkingDaysInPeriod($pdo, $userId, $periodStart, $periodEnd, $preFetchedSchedule, $preFetchedManualHolidays);
         
         // Get current date for comparison
         $currentDate = date('Y-m-d');
@@ -2447,7 +2466,7 @@ function calculateKPIForEmployee(PDO $pdo, $userId, $periodStart = null, $period
                 } else {
                     // No attendance and no izin/sakit = alpha (only for past dates)
                     // If this date is a manual holiday, do not penalize as alpha
-                    if (!isManualHoliday($pdo, $dateStr)) {
+                    if (!isset($preFetchedManualHolidays[$dateStr])) {
                         $alphaCount++;
                     }
                 }
@@ -2755,28 +2774,30 @@ function getEmployeeWorkSchedule(PDO $pdo, $userId) {
 }
 
 // Function to check if a specific date is a working day for an employee
-function isEmployeeWorkingDay(PDO $pdo, $userId, $date) {
+function isEmployeeWorkingDay(PDO $pdo, $userId, $date, $preFetchedSchedule = null, $preFetchedManualHolidays = null) {
     $dateObj = new DateTime($date);
     $dayOfWeek = strtolower($dateObj->format('l')); // monday, tuesday, etc.
     
-    $schedule = getEmployeeWorkSchedule($pdo, $userId);
+    $schedule = $preFetchedSchedule !== null ? $preFetchedSchedule : getEmployeeWorkSchedule($pdo, $userId);
+    
+    $isHoliday = isNationalHoliday($date) || ($preFetchedManualHolidays !== null ? isset($preFetchedManualHolidays[$date]) : isManualHoliday($pdo, $date));
     
     // If no specific schedule found, use default (Monday-Friday)
     if (empty($schedule)) {
         $dayNumber = $dateObj->format('N');
-        return $dayNumber < 6 && !isNationalHoliday($date) && !isManualHoliday($pdo, $date);
+        return $dayNumber < 6 && !$isHoliday;
     }
     
     // Check if employee works on this day
     if (isset($schedule[$dayOfWeek])) {
-        return $schedule[$dayOfWeek]['is_working_day'] && !isNationalHoliday($date) && !isManualHoliday($pdo, $date);
+        return $schedule[$dayOfWeek]['is_working_day'] && !$isHoliday;
     }
     
     return false;
 }
 
 // Function to get working days for a specific employee in a period
-function getEmployeeWorkingDaysInPeriod(PDO $pdo, $userId, $startDate, $endDate) {
+function getEmployeeWorkingDaysInPeriod(PDO $pdo, $userId, $startDate, $endDate, $preFetchedSchedule = null, $preFetchedManualHolidays = null) {
     $workingDays = [];
     $start = new DateTime($startDate);
     $end = new DateTime($endDate);
@@ -2784,7 +2805,7 @@ function getEmployeeWorkingDaysInPeriod(PDO $pdo, $userId, $startDate, $endDate)
     while ($start <= $end) {
         $dateStr = $start->format('Y-m-d');
         
-        if (isEmployeeWorkingDay($pdo, $userId, $dateStr)) {
+        if (isEmployeeWorkingDay($pdo, $userId, $dateStr, $preFetchedSchedule, $preFetchedManualHolidays)) {
             $workingDays[] = clone $start;
         }
         
@@ -2906,9 +2927,34 @@ function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = n
             ];
         }
         
+        // Pre-fetch manual holidays once for the entire period
+        $manualHolidaysList = getManualHolidaysInRange($pdo, $periodStart, $periodEnd);
+        $preFetchedManualHolidays = [];
+        foreach ($manualHolidaysList as $mh) {
+            $preFetchedManualHolidays[$mh['date']] = true;
+        }
+        
+        // Fetch all schedules in one query and group them by user_id
+        $schedulesStmt = $pdo->prepare("SELECT * FROM employee_work_schedule");
+        $schedulesStmt->execute();
+        $allSchedules = $schedulesStmt->fetchAll();
+        $schedulesByUser = [];
+        foreach ($allSchedules as $sch) {
+            $uid = $sch['user_id'];
+            if (!isset($schedulesByUser[$uid])) {
+                $schedulesByUser[$uid] = [];
+            }
+            $schedulesByUser[$uid][$sch['day_of_week']] = [
+                'is_working_day' => (bool)$sch['is_working_day'],
+                'start_time' => $sch['start_time'],
+                'end_time' => $sch['end_time']
+            ];
+        }
+        
         $kpiData = [];
         foreach ($employees as $employee) {
-            $kpi = calculateKPIForEmployee($pdo, $employee['id'], $periodStart, $periodEnd);
+            $empSchedule = $schedulesByUser[$employee['id']] ?? [];
+            $kpi = calculateKPIForEmployee($pdo, $employee['id'], $periodStart, $periodEnd, $preFetchedManualHolidays, $empSchedule);
             if ($kpi) {
                 $kpiData[] = $kpi;
             }

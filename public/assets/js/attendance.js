@@ -34,7 +34,10 @@ let btnScanMasuk = document.getElementById('btn-scan-masuk');
 let btnScanPulang = document.getElementById('btn-scan-pulang');
 
 // Configuration
-const detectionConfig = {
+window.detectionConfig = window.detectionConfig || {};
+const detectionConfig = window.detectionConfig;
+// Merge default values if not already defined from settings
+const defaultDetectionConfig = {
     faceMatcherThreshold: 0.4,
     recognitionThreshold: 0.4,
     qualityThreshold: 0.25,
@@ -48,6 +51,11 @@ const detectionConfig = {
     genderValidation: true,
     minConfidencePercent: 65 // Minimum confidence % required to accept (loaded from settings)
 };
+for (const key in defaultDetectionConfig) {
+    if (detectionConfig[key] === undefined) {
+        detectionConfig[key] = defaultDetectionConfig[key];
+    }
+}
 
 // ---- Liveness Detection State ----
 const livenessState = {
@@ -190,7 +198,7 @@ async function loadFaceApiModels() {
     
     window.loadingFaceApiModels = true;
     
-    const MODEL_URL = window.FACEAPI_MODEL_URL || 'assets/js/face-api-models';
+    const MODEL_URL = window.FACEAPI_MODEL_URL || 'assets/face-models';
     
     try {
         console.log('🚀 Loading face recognition models...');
@@ -198,17 +206,15 @@ async function loadFaceApiModels() {
         
         // Ensure backend is ready
         await faceapi.tf.ready();
-        updateLoadingProgress(10, 'Memuat model deteksi wajah...');
+        updateLoadingProgress(15, 'Memuat model deteksi wajah...');
         
         // Load models sequentially with progress updates
         await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-        updateLoadingProgress(30, 'Memuat model landmark wajah...');
+        updateLoadingProgress(50, 'Memuat model landmark wajah...');
         await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-        updateLoadingProgress(50, 'Memuat model pengenalan wajah...');
+        updateLoadingProgress(80, 'Memuat model pengenalan wajah...');
         await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
-        updateLoadingProgress(70, 'Memuat model ekspresi wajah...');
-        await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
-        updateLoadingProgress(80, 'Model AI siap!');
+        updateLoadingProgress(100, 'Model AI siap!');
         window.faceApiModelsLoaded = true;
     } catch (e) {
         console.error('Error loading models', e);
@@ -550,6 +556,12 @@ function startVideoInterval() {
     async function detectionLoop() {
         if (isDetectionStopped || !isCameraActive) return;
         if (videoInterval === null) return;
+
+        // Strict guard: do not process frames if models or faceMatcher are not loaded/ready
+        if (!window.faceApiModelsLoaded || !faceMatcher) {
+            videoInterval = setTimeout(detectionLoop, detectionDelay);
+            return;
+        }
 
         if (!isPresensiSuccess && !isProcessingRecognition && !isDetectionPaused && !_detectionRunning) {
             _detectionRunning = true;

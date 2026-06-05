@@ -16,6 +16,7 @@ const STATIC_ASSETS = [
 ];
 
 self.addEventListener('install', event => {
+    self.skipWaiting();
     event.waitUntil(
         caches.open(CACHE_NAME).then(cache => {
             // Use no-cors or ignore errors for individual files to prevent install failure
@@ -26,11 +27,14 @@ self.addEventListener('install', event => {
 
 self.addEventListener('activate', event => {
     event.waitUntil(
-        caches.keys().then(keys => {
-            return Promise.all(
-                keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))
-            );
-        })
+        Promise.all([
+            self.clients.claim(),
+            caches.keys().then(keys => {
+                return Promise.all(
+                    keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))
+                );
+            })
+        ])
     );
 });
 
@@ -39,6 +43,11 @@ self.addEventListener('fetch', event => {
     // Skip any other methods (POST, PUT, DELETE, etc.)
     if (event.request.method !== 'GET') {
         return; 
+    }
+
+    // Skip navigation/redirect requests to let the browser handle redirects natively
+    if (event.request.mode === 'navigate' || event.request.redirect === 'manual') {
+        return;
     }
 
     const url = new URL(event.request.url);
