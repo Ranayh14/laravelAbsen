@@ -2195,7 +2195,20 @@ function processEnhancedAttendance($base64Image) {
 }
 
 // KPI Calculation Functions
-function calculateKPIForEmployee(PDO $pdo, $userId, $periodStart = null, $periodEnd = null, $preFetchedManualHolidays = null, $preFetchedSchedule = null) {
+function calculateKPIForEmployee(
+    PDO $pdo, 
+    $userId, 
+    $periodStart = null, 
+    $periodEnd = null, 
+    $preFetchedManualHolidays = null, 
+    $preFetchedSchedule = null,
+    $preFetchedEmployee = null,
+    $preFetchedAttendance = null,
+    $preFetchedIzinNotes = null,
+    $preFetchedOvertime = null,
+    $preFetchedDailyReports = null,
+    $workStartDateOverride = null
+) {
     try {
         // Get KPI settings
         $latePenaltyPerMinute = (float)getSetting($pdo, 'kpi_late_penalty_per_minute', '1');
@@ -2205,24 +2218,37 @@ function calculateKPIForEmployee(PDO $pdo, $userId, $periodStart = null, $period
         $maxOntimeHour = (int)getSetting($pdo, 'max_ontime_hour', '8');
         
         // Get employee data
-        $stmt = $pdo->prepare("SELECT nama, created_at, nim, startup, foto_base64 FROM users WHERE id = ?");
-        $stmt->execute([$userId]);
-        $employee = $stmt->fetch();
+        if ($preFetchedEmployee !== null) {
+            $employee = $preFetchedEmployee;
+        } else {
+            $stmt = $pdo->prepare("SELECT nama, created_at, nim, startup, foto_base64 FROM users WHERE id = ?");
+            $stmt->execute([$userId]);
+            $employee = $stmt->fetch();
+        }
         if (!$employee) return null;
         
         // Get employee registration date
         $employeeRegDate = $employee['created_at'];
         
+        // Determine effective start date (custom work start date override or registration date)
+        $effectiveStartDate = date('Y-m-d', strtotime($employeeRegDate));
+        if ($workStartDateOverride !== null) {
+            if ($workStartDateOverride !== false) {
+                $effectiveStartDate = $workStartDateOverride;
+            }
+        } else {
+            try {
+                $k = 'work_start_date_user_'.$userId;
+                $val = getSetting($pdo, $k);
+                if ($val) {
+                    $effectiveStartDate = $val;
+                }
+            } catch (Exception $e) {}
+        }
+        
         // Determine KPI start: use per-employee start setting if available, else registration date
         if (!$periodStart) {
-            // Try settings override
-            try{
-                $k = 'work_start_date_user_'.$userId;
-                $st = $pdo->prepare("SELECT setting_value FROM settings WHERE setting_key=:k LIMIT 1");
-                $st->execute([':k'=>$k]);
-                $val = $st->fetchColumn();
-                if($val){ $periodStart = $val; } else { $periodStart = $employeeRegDate; }
-            }catch(Exception $e){ $periodStart = $employeeRegDate; }
+            $periodStart = $effectiveStartDate;
         }
         if (!$periodEnd) {
             $periodEnd = date('Y-m-d');
@@ -2245,57 +2271,55 @@ function calculateKPIForEmployee(PDO $pdo, $userId, $periodStart = null, $period
         // Debug logging for period
         error_log("KPI Debug - User $userId: Period start: $periodStart, Period end: $periodEnd");
         
-        // Get employee registration date only
-        $employeeRegDateOnly = date('Y-m-d', strtotime($employeeRegDate));
-        
         // Get attendance records for the period (WFO, WFA, Overtime only)
-        // Store late records with their minutes for per-occurrence calculation
-        // Use jam_masuk (time format) instead of jam_masuk_iso for late_minutes calculation
-        // Use max_ontime_hour from settings instead of hardcoded 08:00
-        $st = $pdo->prepare("
-            SELECT 
-                DATE(jam_masuk_iso) as attendance_date,
-                jam_masuk_iso,
-                jam_masuk,
-                status,
-                ket,
-                CASE 
-                    WHEN status = 'terlambat' AND jam_masuk IS NOT NULL THEN 
-                        GREATEST(0, 
-                            FLOOR(
-                                TIMESTAMPDIFF(MINUTE, 
-                                    CONCAT('2000-01-01 ', LPAD(:max_ontime_hour1, 2, '0'), ':00:00'),
-                                    CONCAT('2000-01-01 ', 
-                                        CASE 
-                                            WHEN LENGTH(jam_masuk) = 5 THEN CONCAT(jam_masuk, ':00')
-                                            ELSE jam_masuk
-                                        END
+        if ($preFetchedAttendance !== null) {
+            $attendanceRecords = $preFetchedAttendance;
+        } else {
+            $st = $pdo->prepare("
+                SELECT 
+                    DATE(jam_masuk_iso) as attendance_date,
+                    jam_masuk_iso,
+                    jam_masuk,
+                    status,
+                    ket,
+                    CASE 
+                        WHEN status = 'terlambat' AND jam_masuk IS NOT NULL THEN 
+                            GREATEST(0, 
+                                FLOOR(
+                                    TIMESTAMPDIFF(MINUTE, 
+                                        CONCAT('2000-01-01 ', LPAD(:max_ontime_hour1, 2, '0'), ':00:00'),
+                                        CONCAT('2000-01-01 ', 
+                                            CASE 
+                                                WHEN LENGTH(jam_masuk) = 5 THEN CONCAT(jam_masuk, ':00')
+                                                ELSE jam_masuk
+                                            END
+                                        )
                                     )
                                 )
                             )
-                        )
-                    WHEN status = 'terlambat' AND jam_masuk IS NULL THEN 
-                        GREATEST(0, TIMESTAMPDIFF(MINUTE, 
-                            CONCAT(DATE(jam_masuk_iso), ' ', LPAD(:max_ontime_hour2, 2, '0'), ':00:00'), 
-                            jam_masuk_iso
-                        ))
-                    ELSE 0 
-                END as late_minutes
-            FROM attendance 
-            WHERE user_id = :user_id 
-            AND jam_masuk_iso IS NOT NULL 
-            AND DATE(jam_masuk_iso) BETWEEN DATE(:period_start) AND DATE(:period_end)
-            AND ket IN ('wfo', 'wfa', 'overtime')
-            ORDER BY attendance_date
-        ");
-        $st->execute([
-            'user_id' => $userId, 
-            'period_start' => $periodStart, 
-            'period_end' => $periodEnd,
-            'max_ontime_hour1' => $maxOntimeHour,
-            'max_ontime_hour2' => $maxOntimeHour
-        ]);
-        $attendanceRecords = $st->fetchAll();
+                        WHEN status = 'terlambat' AND jam_masuk IS NULL THEN 
+                            GREATEST(0, TIMESTAMPDIFF(MINUTE, 
+                                CONCAT(DATE(jam_masuk_iso), ' ', LPAD(:max_ontime_hour2, 2, '0'), ':00:00'), 
+                                jam_masuk_iso
+                            ))
+                        ELSE 0 
+                    END as late_minutes
+                FROM attendance 
+                WHERE user_id = :user_id 
+                AND jam_masuk_iso IS NOT NULL 
+                AND DATE(jam_masuk_iso) BETWEEN DATE(:period_start) AND DATE(:period_end)
+                AND ket IN ('wfo', 'wfa', 'overtime')
+                ORDER BY attendance_date
+            ");
+            $st->execute([
+                'user_id' => $userId, 
+                'period_start' => $periodStart, 
+                'period_end' => $periodEnd,
+                'max_ontime_hour1' => $maxOntimeHour,
+                'max_ontime_hour2' => $maxOntimeHour
+            ]);
+            $attendanceRecords = $st->fetchAll();
+        }
         
         // Debug: log attendance records to see late_minutes values
         error_log("KPI Debug - User $userId: Found " . count($attendanceRecords) . " attendance records");
@@ -2306,54 +2330,66 @@ function calculateKPIForEmployee(PDO $pdo, $userId, $periodStart = null, $period
         }
         
         // Get izin/sakit records from attendance_notes table
-        $stmt = $pdo->prepare("
-            SELECT date as izin_date, type as status
-            FROM attendance_notes 
-            WHERE user_id = :user_id 
-            AND type IN ('izin', 'sakit')
-            AND date BETWEEN :period_start AND :period_end
-            ORDER BY izin_date
-        ");
-        $stmt->execute([
-            'user_id' => $userId, 
-            'period_start' => $periodStart, 
-            'period_end' => $periodEnd
-        ]);
-        $izinNotesRecords = $stmt->fetchAll();
+        if ($preFetchedIzinNotes !== null) {
+            $izinNotesRecords = $preFetchedIzinNotes;
+        } else {
+            $stmt = $pdo->prepare("
+                SELECT date as izin_date, type as status
+                FROM attendance_notes 
+                WHERE user_id = :user_id 
+                AND type IN ('izin', 'sakit')
+                AND date BETWEEN :period_start AND :period_end
+                ORDER BY izin_date
+            ");
+            $stmt->execute([
+                'user_id' => $userId, 
+                'period_start' => $periodStart, 
+                'period_end' => $periodEnd
+            ]);
+            $izinNotesRecords = $stmt->fetchAll();
+        }
         
         // Debug logging for izin/sakit records
         error_log("KPI Debug - User $userId: Found " . count($izinNotesRecords) . " izin/sakit records in period $periodStart to $periodEnd");
-        error_log("KPI Debug - Employee registration date: $employeeRegDateOnly");
+        error_log("KPI Debug - Employee effective start date: $effectiveStartDate");
         
         // Get overtime records (attendance marked as 'overtime')
-        $stmt = $pdo->prepare("
-            SELECT DATE(jam_masuk_iso) as overtime_date, status, jam_masuk_iso, jam_masuk
-            FROM attendance 
-            WHERE user_id = :user_id 
-            AND DATE(jam_masuk_iso) BETWEEN :period_start AND :period_end
-            AND ket = 'overtime'
-            ORDER BY jam_masuk_iso ASC
-        ");
-        $stmt->execute([
-            'user_id' => $userId, 
-            'period_start' => $periodStart, 
-            'period_end' => $periodEnd
-        ]);
-        $overtimeRecords = $stmt->fetchAll();
+        if ($preFetchedOvertime !== null) {
+            $overtimeRecords = $preFetchedOvertime;
+        } else {
+            $stmt = $pdo->prepare("
+                SELECT DATE(jam_masuk_iso) as overtime_date, status, jam_masuk_iso, jam_masuk
+                FROM attendance 
+                WHERE user_id = :user_id 
+                AND DATE(jam_masuk_iso) BETWEEN :period_start AND :period_end
+                AND ket = 'overtime'
+                ORDER BY jam_masuk_iso ASC
+            ");
+            $stmt->execute([
+                'user_id' => $userId, 
+                'period_start' => $periodStart, 
+                'period_end' => $periodEnd
+            ]);
+            $overtimeRecords = $stmt->fetchAll();
+        }
         
         // Get daily reports for the period
-        $dailyReportsStmt = $pdo->prepare("
-            SELECT report_date 
-            FROM daily_reports 
-            WHERE user_id = :user_id 
-            AND report_date BETWEEN :period_start AND :period_end
-        ");
-        $dailyReportsStmt->execute([
-            'user_id' => $userId,
-            'period_start' => $periodStart,
-            'period_end' => $periodEnd
-        ]);
-        $dailyReportsRecords = $dailyReportsStmt->fetchAll();
+        if ($preFetchedDailyReports !== null) {
+            $dailyReportsRecords = $preFetchedDailyReports;
+        } else {
+            $dailyReportsStmt = $pdo->prepare("
+                SELECT report_date 
+                FROM daily_reports 
+                WHERE user_id = :user_id 
+                AND report_date BETWEEN :period_start AND :period_end
+            ");
+            $dailyReportsStmt->execute([
+                'user_id' => $userId,
+                'period_start' => $periodStart,
+                'period_end' => $periodEnd
+            ]);
+            $dailyReportsRecords = $dailyReportsStmt->fetchAll();
+        }
         
         // Create maps for quick lookup
         $attendanceMap = [];
@@ -2368,8 +2404,8 @@ function calculateKPIForEmployee(PDO $pdo, $userId, $periodStart = null, $period
         
         $izinDates = [];
         foreach ($izinNotesRecords as $record) {
-            // Only add if date is after or on registration date AND within the period
-            if ($record['izin_date'] >= $employeeRegDateOnly && $record['izin_date'] >= $periodStart && $record['izin_date'] <= $periodEnd) {
+            // Only add if date is after or on effective start date AND within the period
+            if ($record['izin_date'] >= $effectiveStartDate && $record['izin_date'] >= $periodStart && $record['izin_date'] <= $periodEnd) {
                 $izinDates[$record['izin_date']] = $record['status'];
             }
         }
@@ -2405,8 +2441,8 @@ function calculateKPIForEmployee(PDO $pdo, $userId, $periodStart = null, $period
         foreach ($workingDays as $date) {
             $dateStr = $date->format('Y-m-d');
             
-            // Skip dates before employee registration
-            if ($dateStr < $employeeRegDateOnly) {
+            // Skip dates before employee effective start date
+            if ($dateStr < $effectiveStartDate) {
                 continue;
             }
             
@@ -2482,7 +2518,7 @@ function calculateKPIForEmployee(PDO $pdo, $userId, $periodStart = null, $period
         $currentDate = date('Y-m-d');
         $directIzinSakitCount = 0;
         foreach ($izinNotesRecords as $record) {
-            if ($record['izin_date'] >= $employeeRegDateOnly && 
+            if ($record['izin_date'] >= $effectiveStartDate && 
                 $record['izin_date'] >= $periodStart && 
                 $record['izin_date'] <= $periodEnd &&
                 $record['izin_date'] <= $currentDate) {
@@ -2636,6 +2672,7 @@ function calculateKPIForEmployee(PDO $pdo, $userId, $periodStart = null, $period
         return null;
     }
 }
+
 
 // Function to get Indonesian national holidays for a given year
 function getIndonesianNationalHolidays($year) {
@@ -2913,8 +2950,8 @@ function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = n
         $periodStart = $customPeriodStart ?? getEarliestEmployeeRegistrationDate($pdo);
         $periodEnd = $customPeriodEnd ?? date('Y-m-d'); // Use current date instead of period end
         
-        // Get all employees
-        $stmt = $pdo->prepare("SELECT id, nama FROM users WHERE role = 'pegawai' ORDER BY nama");
+        // Get all employees with their details
+        $stmt = $pdo->prepare("SELECT id, nama, created_at, nim, startup, foto_base64 FROM users WHERE role = 'pegawai' ORDER BY nama");
         $stmt->execute();
         $employees = $stmt->fetchAll();
         
@@ -2951,10 +2988,164 @@ function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = n
             ];
         }
         
+        // Fetch work start date settings overrides
+        $overridesStmt = $pdo->prepare("SELECT setting_key, setting_value FROM settings WHERE setting_key LIKE 'work_start_date_user_%'");
+        $overridesStmt->execute();
+        $allOverrides = $overridesStmt->fetchAll();
+        $workStartDateOverrides = [];
+        foreach ($allOverrides as $ov) {
+            $uid = (int)str_replace('work_start_date_user_', '', $ov['setting_key']);
+            $workStartDateOverrides[$uid] = $ov['setting_value'];
+        }
+        
+        // Get KPI settings for bulk calculations (and pre-cache global keys)
+        $maxOntimeHour = (int)getSetting($pdo, 'max_ontime_hour', '8');
+        getSetting($pdo, 'kpi_late_penalty_per_minute', '1');
+        getSetting($pdo, 'kpi_izin_sakit_score', '85');
+        getSetting($pdo, 'kpi_alpha_score', '0');
+        getSetting($pdo, 'kpi_overtime_bonus', '5');
+        
+        // Fetch all attendance records in one query and group them by user_id
+        $attendanceStmt = $pdo->prepare("
+            SELECT 
+                user_id,
+                DATE(jam_masuk_iso) as attendance_date,
+                jam_masuk_iso,
+                jam_masuk,
+                status,
+                ket,
+                CASE 
+                    WHEN status = 'terlambat' AND jam_masuk IS NOT NULL THEN 
+                        GREATEST(0, 
+                            FLOOR(
+                                TIMESTAMPDIFF(MINUTE, 
+                                    CONCAT('2000-01-01 ', LPAD(:max_ontime_hour1, 2, '0'), ':00:00'),
+                                    CONCAT('2000-01-01 ', 
+                                        CASE 
+                                            WHEN LENGTH(jam_masuk) = 5 THEN CONCAT(jam_masuk, ':00')
+                                            ELSE jam_masuk
+                                        END
+                                    )
+                                )
+                            )
+                        )
+                    WHEN status = 'terlambat' AND jam_masuk IS NULL THEN 
+                        GREATEST(0, TIMESTAMPDIFF(MINUTE, 
+                            CONCAT(DATE(jam_masuk_iso), ' ', LPAD(:max_ontime_hour2, 2, '0'), ':00:00'), 
+                            jam_masuk_iso
+                        ))
+                    ELSE 0 
+                END as late_minutes
+            FROM attendance 
+            WHERE jam_masuk_iso IS NOT NULL 
+            AND DATE(jam_masuk_iso) BETWEEN DATE(:period_start) AND DATE(:period_end)
+            AND ket IN ('wfo', 'wfa', 'overtime')
+            ORDER BY jam_masuk_iso ASC
+        ");
+        $attendanceStmt->execute([
+            'period_start' => $periodStart, 
+            'period_end' => $periodEnd,
+            'max_ontime_hour1' => $maxOntimeHour,
+            'max_ontime_hour2' => $maxOntimeHour
+        ]);
+        $allAttendance = $attendanceStmt->fetchAll();
+        $attendanceByUser = [];
+        foreach ($allAttendance as $att) {
+            $uid = $att['user_id'];
+            if (!isset($attendanceByUser[$uid])) {
+                $attendanceByUser[$uid] = [];
+            }
+            $attendanceByUser[$uid][] = $att;
+        }
+        
+        // Fetch all attendance notes in one query and group them by user_id
+        $notesStmt = $pdo->prepare("
+            SELECT user_id, date as izin_date, type as status
+            FROM attendance_notes 
+            WHERE type IN ('izin', 'sakit')
+            AND date BETWEEN :period_start AND :period_end
+            ORDER BY date
+        ");
+        $notesStmt->execute([
+            'period_start' => $periodStart,
+            'period_end' => $periodEnd
+        ]);
+        $allNotes = $notesStmt->fetchAll();
+        $notesByUser = [];
+        foreach ($allNotes as $note) {
+            $uid = $note['user_id'];
+            if (!isset($notesByUser[$uid])) {
+                $notesByUser[$uid] = [];
+            }
+            $notesByUser[$uid][] = $note;
+        }
+        
+        // Fetch all overtime records in one query and group them by user_id
+        $overtimeStmt = $pdo->prepare("
+            SELECT user_id, DATE(jam_masuk_iso) as overtime_date, status, jam_masuk_iso, jam_masuk
+            FROM attendance 
+            WHERE DATE(jam_masuk_iso) BETWEEN :period_start AND :period_end
+            AND ket = 'overtime'
+            ORDER BY jam_masuk_iso ASC
+        ");
+        $overtimeStmt->execute([
+            'period_start' => $periodStart,
+            'period_end' => $periodEnd
+        ]);
+        $allOvertime = $overtimeStmt->fetchAll();
+        $overtimeByUser = [];
+        foreach ($allOvertime as $ot) {
+            $uid = $ot['user_id'];
+            if (!isset($overtimeByUser[$uid])) {
+                $overtimeByUser[$uid] = [];
+            }
+            $overtimeByUser[$uid][] = $ot;
+        }
+        
+        // Fetch all daily reports in one query and group them by user_id
+        $reportsStmt = $pdo->prepare("
+            SELECT user_id, report_date 
+            FROM daily_reports 
+            WHERE report_date BETWEEN :period_start AND :period_end
+        ");
+        $reportsStmt->execute([
+            'period_start' => $periodStart,
+            'period_end' => $periodEnd
+        ]);
+        $allReports = $reportsStmt->fetchAll();
+        $reportsByUser = [];
+        foreach ($allReports as $rep) {
+            $uid = $rep['user_id'];
+            if (!isset($reportsByUser[$uid])) {
+                $reportsByUser[$uid] = [];
+            }
+            $reportsByUser[$uid][] = $rep;
+        }
+        
         $kpiData = [];
         foreach ($employees as $employee) {
-            $empSchedule = $schedulesByUser[$employee['id']] ?? [];
-            $kpi = calculateKPIForEmployee($pdo, $employee['id'], $periodStart, $periodEnd, $preFetchedManualHolidays, $empSchedule);
+            $uid = $employee['id'];
+            $empSchedule = $schedulesByUser[$uid] ?? [];
+            $empAttendance = $attendanceByUser[$uid] ?? [];
+            $empNotes = $notesByUser[$uid] ?? [];
+            $empOvertime = $overtimeByUser[$uid] ?? [];
+            $empReports = $reportsByUser[$uid] ?? [];
+            $empOverride = isset($workStartDateOverrides[$uid]) ? $workStartDateOverrides[$uid] : false;
+            
+            $kpi = calculateKPIForEmployee(
+                $pdo, 
+                $uid, 
+                $periodStart, 
+                $periodEnd, 
+                $preFetchedManualHolidays, 
+                $empSchedule,
+                $employee,
+                $empAttendance,
+                $empNotes,
+                $empOvertime,
+                $empReports,
+                $empOverride
+            );
             if ($kpi) {
                 $kpiData[] = $kpi;
             }

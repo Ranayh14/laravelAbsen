@@ -1079,6 +1079,10 @@ if (isset($_REQUEST['ajax'])) {
                     $customPeriodStart = date('Y-m-01', mktime(0, 0, 0, $month, 1, $year));
                     $customPeriodEnd = date('Y-m-t', mktime(0, 0, 0, $month, 1, $year));
                     error_log("get_kpi_data - Monthly filter: $month/$year ($customPeriodStart to $customPeriodEnd)");
+                } else {
+                    $customPeriodStart = $_REQUEST['period_start'] ?? null;
+                    $customPeriodEnd = $_REQUEST['period_end'] ?? null;
+                    error_log("get_kpi_data - Period filter: $customPeriodStart to $customPeriodEnd");
                 }
                 
                 $kpiData = getAllKPIData($pdo, $customPeriodStart, $customPeriodEnd);
@@ -3747,40 +3751,6 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
         ]);
     }
 
-    // Admin: get KPI data
-    if ($action === 'get_kpi_data') {
-        if (!isAdmin()) jsonResponse(['error' => 'Forbidden'], 403);
-        
-        try {
-            $filterType = $_REQUEST['filter_type'] ?? 'period';
-            $periodStart = null;
-            $periodEnd = null;
-            
-            if ($filterType === 'monthly') {
-                $month = (int)($_REQUEST['month'] ?? date('n'));
-                $year = (int)($_REQUEST['year'] ?? date('Y'));
-                $periodStart = date('Y-m-01', mktime(0, 0, 0, $month, 1, $year));
-                $periodEnd = date('Y-m-t', mktime(0, 0, 0, $month, 1, $year));
-            } else {
-                $periodStart = $_REQUEST['period_start'] ?? null;
-                $periodEnd = $_REQUEST['period_end'] ?? null;
-            }
-            
-            $userId = isset($_REQUEST['user_id']) ? (int)$_REQUEST['user_id'] : null;
-            
-            if ($userId) {
-                // Single employee KPI
-                $kpiData = calculateKPIForEmployee($pdo, $userId, $periodStart, $periodEnd);
-            } else {
-                // All employees KPI (for dashboard)
-                $kpiData = getAllKPIData($pdo, $periodStart, $periodEnd);
-            }
-            
-            jsonResponse(['ok' => true, 'data' => $kpiData]);
-        } catch (Exception $e) {
-            jsonResponse(['ok' => false, 'message' => $e->getMessage()], 500);
-        }
-    }
 
     // Public endpoint for daily report statistics (no login required)
     if ($action === 'get_public_daily_report_stats' && in_array($_SERVER['REQUEST_METHOD'], ['GET', 'POST'])) {
