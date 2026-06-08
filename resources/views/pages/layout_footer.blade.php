@@ -325,6 +325,21 @@ window.loadLabeledFaceDescriptors = async function() {
     
     try {
     const membersList = await fetchMembers();
+    const totalMembers = membersList.length;
+    let processedCount = 0;
+
+    const updateProgress = (pct, msg) => {
+        if (typeof updateLoadingProgress === 'function') {
+            updateLoadingProgress(pct, msg);
+        } else {
+            const el = qs('#loading-progress');
+            if (el) el.textContent = msg;
+            const bar = qs('#loading-progress-bar');
+            if (bar) bar.style.width = pct + '%';
+            const pctText = qs('#loading-progress-pct');
+            if (pctText) pctText.textContent = pct + '%';
+        }
+    };
 
     // CRITICAL: Always populate the global members array for name lookup
     // The attendance.js detection loop uses `members` to find m.nama from the matched label
@@ -343,6 +358,7 @@ window.loadLabeledFaceDescriptors = async function() {
                 item.descriptors.map(d => new Float32Array(d))
             ));
             console.log('✅ Loaded face descriptors from IDB cache:', labeledFaceDescriptors.length, '| members:', membersList.length);
+            updateProgress(100, `✅ Sistem siap! ${labeledFaceDescriptors.length} wajah dimuat dari cache.`);
             window._loadingDescriptors = false;
             return;
         }
@@ -371,6 +387,12 @@ window.loadLabeledFaceDescriptors = async function() {
                 const desc = new Float32Array(JSON.parse(m.face_embedding));
                 const label = String(m.nim || m.nama || m.id);
                 labeledFaceDescriptors.push(new faceapi.LabeledFaceDescriptors(label, [desc]));
+                
+                processedCount++;
+                if (totalMembers > 0) {
+                    const pct = Math.round((processedCount / totalMembers) * 100);
+                    updateProgress(pct, `Memuat data wajah: ${processedCount}/${totalMembers} (${pct}%)`);
+                }
             } catch (e) { console.warn('Failed to parse embedding for', m.nama); }
         }
         console.log(`✅ Loaded ${labeledFaceDescriptors.length} embeddings instantly from server.`);
@@ -379,9 +401,14 @@ window.loadLabeledFaceDescriptors = async function() {
     // --- Slow path: Only compute from image for members missing an embedding ---
     if (membersNeedingCompute.length > 0) {
         console.log(`🐢 Computing ${membersNeedingCompute.length} missing embeddings from photos (fallback)...`);
-        const loadingProgress = qs('#loading-progress');
         for (const m of membersNeedingCompute) {
-            if (loadingProgress) loadingProgress.textContent = `Menghitung vektor wajah: ${m.nama}...`;
+            processedCount++;
+            let pct = 0;
+            if (totalMembers > 0) {
+                pct = Math.round((processedCount / totalMembers) * 100);
+            }
+            updateProgress(pct, `Menghitung vektor wajah: ${m.nama} (${processedCount}/${totalMembers} - ${pct}%)`);
+            
             try {
                 let photo = m.foto_base64;
                 if (!photo && m.has_foto && typeof api === 'function') {
@@ -392,11 +419,22 @@ window.loadLabeledFaceDescriptors = async function() {
                 if (!photo) continue;
                 
                 const img = await faceapi.fetchImage(photo);
-                const det = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.3 }))
+                const det = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.3 }))
                     .withFaceLandmarks().withFaceDescriptor();
                 if (det) {
                     const label = String(m.nim || m.nama || m.id);
                     labeledFaceDescriptors.push(new faceapi.LabeledFaceDescriptors(label, [det.descriptor]));
+                    
+                    // Save to server database so next time is instant for everyone
+                    const formData = new FormData();
+                    formData.append('ajax', 'save_face_embedding');
+                    formData.append('id', m.id);
+                    formData.append('embedding', JSON.stringify(Array.from(det.descriptor)));
+                    formData.append('landmarks', JSON.stringify(det.landmarks.positions));
+                    
+                    api('?ajax=save_face_embedding', formData).catch(err => {
+                        console.error('Failed to save embedding for', m.nama, err);
+                    });
                 }
             } catch (err) { console.warn('Detection failed for', m.nama, err); }
         }
@@ -411,6 +449,7 @@ window.loadLabeledFaceDescriptors = async function() {
         idbSetDescriptors(versionKey, toStore).catch(() => {});
     }
 
+    updateProgress(100, `✅ Sistem siap! ${labeledFaceDescriptors.length} wajah dimuat.`);
     console.log('✅ Total face descriptors loaded:', labeledFaceDescriptors.length);
     } catch(e) {
         console.error('loadLabeledFaceDescriptors failed:', e);
@@ -418,6 +457,7 @@ window.loadLabeledFaceDescriptors = async function() {
         window._loadingDescriptors = false;
     }
 };
+
 
 
 function showNotif(msg, success=true){

@@ -114,6 +114,47 @@ function isMobileDevice() {
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
 
+// Fetch public IP or use cached one
+async function getPublicIp() {
+    if (window.__publicIp) return window.__publicIp;
+    const cached = sessionStorage.getItem('cached_public_ip');
+    if (cached) return cached;
+    try {
+        const resp = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(500) });
+        if (resp.ok) {
+            const data = await resp.json();
+            if (data.ip) {
+                sessionStorage.setItem('cached_public_ip', data.ip);
+                window.__publicIp = data.ip;
+                return data.ip;
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to fetch public IP:', e);
+    }
+    return '';
+}
+
+// Get WiFi SSID (if supported by browser/wrapper)
+async function getWifiSsid() {
+    let wifiSSID = '';
+    try {
+        if (navigator.connection) {
+            const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+            if (connection && connection.type === 'wifi' && connection.wifiSSID) {
+                wifiSSID = connection.wifiSSID;
+            }
+        }
+        if (!wifiSSID && navigator.connection && 'getNetworkInformation' in navigator.connection) {
+            const networkInfo = await navigator.connection.getNetworkInformation();
+            if (networkInfo && networkInfo.wifiSSID) {
+                wifiSSID = networkInfo.wifiSSID;
+            }
+        }
+    } catch (e) {}
+    return wifiSSID;
+}
+
 function detectDevicePerformance() {
     const cores = navigator.hardwareConcurrency || 4;
     const memory = navigator.deviceMemory || 4;
@@ -288,73 +329,152 @@ async function loadLabeledFaceDescriptors() {
             membersToProcess = members;
         }
 
-        if (membersToProcess.length === 0) {
+        const totalMembers = membersToProcess.length;
+        if (totalMembers === 0) {
             window._loadingDescriptors = false;
             return;
         }
 
+        let processedCount = 0;
+        const updateProgress = (pct, msg) => {
+            if (typeof updateLoadingProgress === 'function') {
+                updateLoadingProgress(pct, msg);
+            } else {
+                const el = document.getElementById('loading-progress');
+                if (el) el.textContent = msg;
+                const bar = document.getElementById('loading-progress-bar');
+                if (bar) bar.style.width = pct + '%';
+                const pctText = document.getElementById('loading-progress-pct');
+                if (pctText) pctText.textContent = pct + '%';
+            }
+        };
 
-        // CRITICAL: Aggressive Parallel Loading (< 5s for 17 members)
-        statusMessage('Mengoptimalkan sistem (Hanya sekali)...', 'bg-blue-100 text-blue-700');
-        
-        const promises = membersToProcess.map(async (m, idx) => {
+        // --- Fast path: Use IndexedDB cache if available ---
+        const versionKey = typeof computeMembersVersionKey === 'function' ? await computeMembersVersionKey(membersToProcess) : null;
+        if (versionKey && typeof idbGetDescriptors === 'function') {
+            const cached = await idbGetDescriptors(versionKey);
+
+            if (cached && Array.isArray(cached) && cached.length > 0) {
+                labeledFaceDescriptors = cached.map(item => new faceapi.LabeledFaceDescriptors(
+                    item.label,
+                    item.descriptors.map(d => new Float32Array(d))
+                ));
+                console.log('✅ Loaded face descriptors from IDB cache:', labeledFaceDescriptors.length, '| members:', membersToProcess.length);
+                updateProgress(100, `✅ Sistem siap! ${labeledFaceDescriptors.length} wajah dimuat dari cache.`);
+                window._loadingDescriptors = false;
+                
+                if (labeledFaceDescriptors.length > 0) {
+                    faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.5);
+                }
+                return;
+            }
+        }
+
+        // --- Medium path: Use pre-computed face_embedding from server DB (fast, no image loading) ---
+        labeledFaceDescriptors = [];
+        const membersWithValidEmbedding = membersToProcess.filter(m => {
+            const embedding = m.face_embedding || m[8];
+            if (!embedding) return false;
             try {
-                const label = String(m.nim || m[3] || m.nama || m[4] || m.id || m[0]);
-                const embedding = m.face_embedding || m[8];
-                const foto = m.foto_base64 || m[7];
-
-                // 1. If already in DB, load instantly
-                if (embedding) {
-                    try {
-                        const parsed = JSON.parse(embedding);
-                        if (Array.isArray(parsed) && parsed.length === 128) {
-                            const pct = 80 + Math.round(((idx + 1) / membersToProcess.length) * 18);
-                            updateLoadingProgress(pct, `Memuat data wajah: ${idx + 1}/${membersToProcess.length}...`);
-                            return new faceapi.LabeledFaceDescriptors(label, [new Float32Array(parsed)]);
-                        }
-                    } catch (e) {}
-                }
-                
-                // 2. If missing, compute ONCE and SAVE to DB
-                if (!foto) return null;
-                const img = await faceapi.fetchImage(foto);
-                const det = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 128, scoreThreshold: 0.5 }))
-                    .withFaceLandmarks().withFaceDescriptor();
-                
-                if (det) {
-                    const formData = new FormData();
-                    formData.append('ajax', 'save_face_embedding');
-                    formData.append('id', m.id || m[0]);
-                    formData.append('embedding', JSON.stringify(Array.from(det.descriptor)));
-                    api('index.php?ajax=save_face_embedding', formData);
-                    const pct = 80 + Math.round(((idx + 1) / membersToProcess.length) * 18);
-                    updateLoadingProgress(pct, `Menghitung data wajah: ${idx + 1}/${membersToProcess.length}...`);
-                    return new faceapi.LabeledFaceDescriptors(label, [det.descriptor]);
-                }
-            } catch (e) { console.warn('Fast compute fail', e); }
-            return null;
+                const emb = JSON.parse(embedding);
+                return Array.isArray(emb) && emb.length === 128;
+            } catch (e) { return false; }
+        });
+        
+        const membersNeedingCompute = membersToProcess.filter(m => {
+            const embedding = m.face_embedding || m[8];
+            let hasCompatibleEmbedding = false;
+            if (embedding) {
+                try {
+                    hasCompatibleEmbedding = JSON.parse(embedding).length === 128;
+                } catch(e) {}
+            }
+            const foto = m.foto_base64 || m[7];
+            const hasFoto = m.has_foto || (foto && foto.length > 0);
+            return !hasCompatibleEmbedding && hasFoto;
         });
 
-        const results = await Promise.all(promises);
-        labeledFaceDescriptors = results.filter(r => r !== null);
+        if (membersWithValidEmbedding.length > 0) {
+            console.log(`⚡ Loading ${membersWithValidEmbedding.length} pre-computed 128-dim embeddings from server...`);
+            for (const m of membersWithValidEmbedding) {
+                try {
+                    const embedding = m.face_embedding || m[8];
+                    const desc = new Float32Array(JSON.parse(embedding));
+                    const label = String(m.nim || m[3] || m.nama || m[4] || m.id || m[0]);
+                    labeledFaceDescriptors.push(new faceapi.LabeledFaceDescriptors(label, [desc]));
+                    
+                    processedCount++;
+                    if (totalMembers > 0) {
+                        const pct = Math.round((processedCount / totalMembers) * 100);
+                        updateProgress(pct, `Memuat data wajah: ${processedCount}/${totalMembers} (${pct}%)`);
+                    }
+                } catch (e) { console.warn('Failed to parse embedding for', m.nama || m[4]); }
+            }
+            console.log(`✅ Loaded ${labeledFaceDescriptors.length} embeddings instantly from server.`);
+        }
+
+        // --- Slow path: Only compute from image for members missing an embedding ---
+        if (membersNeedingCompute.length > 0) {
+            console.log(`🐢 Computing ${membersNeedingCompute.length} missing embeddings from photos (fallback)...`);
+            for (const m of membersNeedingCompute) {
+                processedCount++;
+                let pct = 0;
+                if (totalMembers > 0) {
+                    pct = Math.round((processedCount / totalMembers) * 100);
+                }
+                const name = m.nama || m[4] || 'Pegawai';
+                updateProgress(pct, `Menghitung vektor wajah: ${name} (${processedCount}/${totalMembers} - ${pct}%)`);
+                
+                try {
+                    let photo = m.foto_base64 || m[7];
+                    const memberId = m.id || m[0];
+                    if (!photo && (m.has_foto || m[10]) && typeof api === 'function') {
+                        const photoRes = await api(`?ajax=get_member_photo&id=${memberId}`);
+                        if (photoRes && photoRes.ok) photo = photoRes.image;
+                    }
+                    
+                    if (!photo) continue;
+                    
+                    const img = await faceapi.fetchImage(photo);
+                    const det = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.3 }))
+                        .withFaceLandmarks().withFaceDescriptor();
+                    if (det) {
+                        const label = String(m.nim || m[3] || m.nama || m[4] || memberId);
+                        labeledFaceDescriptors.push(new faceapi.LabeledFaceDescriptors(label, [det.descriptor]));
+                        
+                        // Save to server database so next time is instant for everyone
+                        const formData = new FormData();
+                        formData.append('ajax', 'save_face_embedding');
+                        formData.append('id', memberId);
+                        formData.append('embedding', JSON.stringify(Array.from(det.descriptor)));
+                        formData.append('landmarks', JSON.stringify(det.landmarks.positions));
+                        
+                        api('?ajax=save_face_embedding', formData).catch(err => {
+                            console.error('Failed to save embedding for', name, err);
+                        });
+                    }
+                } catch (err) { console.warn('Detection failed for', name, err); }
+            }
+        }
+
         if (labeledFaceDescriptors.length > 0) {
             faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.5);
         }
-        updateLoadingProgress(100, `✅ Sistem siap! ${labeledFaceDescriptors.length} wajah dimuat.`);
         
-        // Cache in IDB for even faster local reloads
-        if (typeof idbSetDescriptors === 'function' && typeof computeMembersVersionKey === 'function') {
-            const versionKey = await computeMembersVersionKey(membersToProcess);
+        // Save to IDB for next time
+        if (versionKey && typeof idbSetDescriptors === 'function' && labeledFaceDescriptors.length > 0) {
             const toStore = labeledFaceDescriptors.map(ld => ({
                 label: ld.label,
                 descriptors: ld.descriptors.map(arr => Array.from(arr))
             }));
-            idbSetDescriptors(versionKey, toStore);
+            idbSetDescriptors(versionKey, toStore).catch(() => {});
         }
+
+        updateProgress(100, `✅ Sistem siap! ${labeledFaceDescriptors.length} wajah dimuat.`);
         console.log(`Loaded ${labeledFaceDescriptors.length} descriptors in ${(performance.now() - startTime).toFixed(2)}ms`);
     } catch (e) {
         console.error('Descriptor load failed:', e);
-        updateLoadingProgress(0, '⚠️ Gagal memuat data wajah.');
+        updateProgress(0, '⚠️ Gagal memuat data wajah.');
     } finally {
         window._loadingDescriptors = false;
     }
@@ -852,6 +972,8 @@ async function handleRecognition(nim, expression) {
         const landmarks = window.lastDetectionForLandmark ? extractFaceLandmarks(window.lastDetectionForLandmark) : null;
         const screenshot = captureCompressedScreenshot();
         const pos = await getPosition();
+        const publicIp = await getPublicIp();
+        const wifiSSID = await getWifiSsid();
         
         let lokasi = 'Mencari lokasi...';
         let lat = null, lng = null;
@@ -860,6 +982,13 @@ async function handleRecognition(nim, expression) {
             lat = pos.coords.latitude;
             lng = pos.coords.longitude;
             lokasi = `Lat: ${lat.toFixed(6)}, Lng: ${lng.toFixed(6)}`;
+            
+            const accuracy = pos.coords.accuracy;
+            if (accuracy !== null && (accuracy < 1.0 || accuracy === 150)) {
+                statusMessage('Akurasi GPS mencurigakan (' + accuracy + 'm) - terdeteksi upaya pemalsuan lokasi atau emulasi browser. Presensi diblokir!', 'bg-red-100 text-red-700');
+                isDetectionPaused = false;
+                return;
+            }
             
             try {
                 const streetName = await getStreetNameFromCoordinates(lat, lng);
@@ -897,7 +1026,9 @@ async function handleRecognition(nim, expression) {
             lat,
             lng,
             lokasi,
-            gps_accuracy: pos ? pos.coords.accuracy : null // Send GPS accuracy for server-side anti-spoofing
+            gps_accuracy: pos ? pos.coords.accuracy : null, // Send GPS accuracy for server-side anti-spoofing
+            public_ip: publicIp,
+            wifi_ssid: wifiSSID
         };
 
         // NEW: Check for different clock-out location
@@ -1499,6 +1630,8 @@ function submitAttendanceWithReason(data) {
         lat: data.lat || window.pendingAttendanceData.lat,
         lng: data.lng || window.pendingAttendanceData.lng,
         gps_accuracy: data.gps_accuracy || window.pendingAttendanceData?.gps_accuracy || null,
+        public_ip: data.public_ip || (window.pendingAttendanceData ? window.pendingAttendanceData.public_ip : null) || null,
+        wifi_ssid: data.wifi_ssid || (window.pendingAttendanceData ? window.pendingAttendanceData.wifi_ssid : null) || null,
         wfa_reason: data.alasan_wfa || window.pendingAttendanceData.alasan_wfa,
         early_leave_reason: data.early_leave_reason || window.pendingAttendanceData.early_leave_reason,
         overtime_reason: data.overtime_reason || window.pendingAttendanceData.overtime_reason,

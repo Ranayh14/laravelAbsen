@@ -628,7 +628,7 @@ if (isset($_REQUEST['ajax'])) {
 
     if ($action === 'get_today_attendance') {
         $type = $_POST['type'] ?? 'masuk';
-        $today = date('Y-m-d');
+        $today = getNetworkTime()->format('Y-m-d');
         
         if ($type === 'masuk') {
             $stmt = $pdo->prepare("
@@ -1164,7 +1164,7 @@ if (isset($_REQUEST['ajax'])) {
             jsonResponse(['ok' => false, 'message' => 'Database error'], 500);
         }
     
-        $now = new DateTime('now', new DateTimeZone('Asia/Jakarta'));
+        $now = getNetworkTime();
         $jamSekarang = $now->format('H:i:s'); // Tetap simpan dengan detik untuk database
         $iso = $now->format('Y-m-d H:i:s');
         $today = $now->format('Y-m-d');
@@ -1344,11 +1344,11 @@ if (isset($_REQUEST['ajax'])) {
                 // OR completely unusable (>150m means the device likely has no actual GPS lock)
                 // -------------------------------------------------------------------------
                 if ($gpsAccuracy !== null) {
-                    if ($gpsAccuracy < 1.0) {
-                        error_log("Anti-Spoofing: Suspiciously perfect GPS accuracy ({$gpsAccuracy}m) - likely fake GPS app");
-                        jsonResponse(['ok' => false, 'message' => 'Akurasi GPS mencurigakan (' . round($gpsAccuracy, 1) . 'm) - kemungkinan menggunakan aplikasi Fake GPS. Mohon matikan aplikasi tersebut dan coba lagi.'], 400);
+                    if ($gpsAccuracy < 1.0 || (float)$gpsAccuracy === 150.0) {
+                        error_log("Anti-Spoofing: Suspicious GPS accuracy ({$gpsAccuracy}m) - likely fake GPS or browser emulation");
+                        jsonResponse(['ok' => false, 'message' => 'Akurasi GPS mencurigakan (' . round($gpsAccuracy, 1) . 'm) - kemungkinan menggunakan aplikasi Fake GPS atau fitur simulasi lokasi di browser. Mohon matikan aplikasi/fitur tersebut dan coba lagi.'], 400);
                     }
-                    if ($gpsAccuracy > 150) {
+                    if ($gpsAccuracy > 250) {
                         error_log("Anti-Spoofing: GPS accuracy too low ({$gpsAccuracy}m) - no real GPS lock");
                         jsonResponse(['ok' => false, 'message' => 'Sinyal GPS terlalu lemah (akurasi: ' . round($gpsAccuracy) . 'm). Mohon pergi ke area terbuka dan pastikan GPS aktif.'], 400);
                     }
@@ -1482,10 +1482,30 @@ if (isset($_REQUEST['ajax'])) {
                                     
                                     error_log("Anti-Spoofing: IP-GPS Distance: " . round($distanceKm, 2) . " km");
                                     
-                                    // 500km tolerance (relaxed to accommodate mobile gateways which often differ from actual city)
+                                    // 1. General check (500km threshold)
                                     if ($distanceKm > 500) {
                                         error_log("Anti-Spoofing: IP-GPS mismatch ($distanceKm km). IP: $publicIp ($ipLat, $ipLon), GPS: $lat, $lng");
                                         jsonResponse(['ok' => false, 'message' => 'Akurasi ditolak: Lokasi GPS terdeteksi terlalu jauh dari lokasi IP Internet Anda. Mohon matikan VPN / Proxy / Aplikasi Fake GPS.'], 400);
+                                    }
+                                    
+                                    // 2. Strict check for campus geofence:
+                                    // If GPS is inside campus geofence but IP is >150km away, they are definitely spoofing GPS to campus.
+                                    $wfoLat = (float)getSetting($pdo, 'wfo_lat', '-6.97662');
+                                    $wfoLng = (float)getSetting($pdo, 'wfo_lng', '107.63273');
+                                    $wfoRadius = min((int)getSetting($pdo, 'wfo_radius_m', '800'), 1500);
+                                    
+                                    // Calculate distance to FIT for local geofence check
+                                    $earth = 6371000; // meters
+                                    $dLat = deg2rad($wfoLat - $lat);
+                                    $dLng = deg2rad($wfoLng - $lng);
+                                    $a = sin($dLat/2) * sin($dLat/2) + cos(deg2rad($lat)) * cos(deg2rad($wfoLat)) * sin($dLng/2) * sin($dLng/2);
+                                    $c = 2 * atan2(sqrt($a), sqrt(1-$a));
+                                    $dist = $earth * $c;
+                                    $isInsideRadius = ($dist <= $wfoRadius);
+                                    
+                                    if ($isInsideRadius && $distanceKm > 150) {
+                                        error_log("Anti-Spoofing: GPS is at campus but IP is $distanceKm km away. GPS: $lat, $lng. Possible Fake GPS spoofing!");
+                                        jsonResponse(['ok' => false, 'message' => 'Akurasi ditolak: Terdeteksi pemalsuan lokasi. Lokasi GPS Anda berada di kampus, namun IP Internet Anda terdeteksi berada di daerah lain. Mohon matikan aplikasi Fake GPS Anda.'], 400);
                                     }
                                 }
                             }
@@ -1609,20 +1629,28 @@ if (isset($_REQUEST['ajax'])) {
                     }
                 }
 
-                if ($isInsideTeluByApi) {
-                    $ketVal = 'wfo';
-                    error_log('✓ WFO via IP — IP jaringan TelU valid: ' . $publicIp);
-                } elseif ($isInsideRadius) {
-                    $ketVal = 'wfo';
-                    error_log('✓ WFO via GPS — dalam radius dekat ' . round($distance) . 'm dari gedung FIT (pakai data seluler)');
-                } elseif ($isInsideCampusGeofence) {
-                    $ketVal = 'wfo';
-                    error_log('✓ WFO via Campus Geofence — dalam radius kampus ' . round($distance) . 'm dan alamat valid: ' . $lokasi);
-                } else {
-                    if ($distance !== null) {
-                        error_log('✗ WFA — IP bukan TelU, di luar radius dekat (' . round($distance) . 'm > ' . $effectiveRadius . 'm), dan bukan area kampus valid.');
+                if ($wfoMode === 'api') {
+                    // STRICT MODE (IP + Geofence): WFO if on TelU IP AND inside GPS radius/geofence
+                    $hasValidLocation = $isInsideRadius || $isInsideCampusGeofence;
+                    if ($isInsideTeluByApi && $hasValidLocation) {
+                        $ketVal = 'wfo';
+                        error_log('✓ WFO via IP & Geofence (Strict Mode) — IP: ' . $publicIp . ', Jarak: ' . round($distance) . 'm');
                     } else {
-                        error_log('✗ WFA — IP bukan TelU dan GPS tidak tersedia');
+                        $reasons = [];
+                        if (!$isInsideTeluByApi) $reasons[] = 'IP tidak terdeteksi di jaringan Telkom University';
+                        if (!$hasValidLocation) $reasons[] = 'GPS di luar radius geofence kampus';
+                        error_log('✗ WFA via Strict Mode — ' . implode('; ', $reasons));
+                    }
+                } else {
+                    // COORDINATE MODE (GPS Geofence Only): WFO if inside GPS radius/geofence
+                    if ($isInsideRadius) {
+                        $ketVal = 'wfo';
+                        error_log('✓ WFO via GPS (Coordinate Mode) — Jarak: ' . round($distance) . 'm');
+                    } elseif ($isInsideCampusGeofence) {
+                        $ketVal = 'wfo';
+                        error_log('✓ WFO via Campus Geofence (Coordinate Mode) — Alamat: ' . $lokasi);
+                    } else {
+                        error_log('✗ WFA via Coordinate Mode — GPS di luar radius geofence kampus.');
                     }
                 }
                 
@@ -3775,6 +3803,9 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
         $drByDate = [];
         foreach($drStmt->fetchAll() as $r){ $drByDate[$r['report_date']]=$r; }
 
+        // Pre-fetch work schedule once to avoid database queries inside the day-by-day loop
+        $preFetchedSchedule = getEmployeeWorkSchedule($pdo, $uid);
+
         // Build all days in month (including weekends)
         $out = [];
         $cur = new DateTime($start);
@@ -3798,8 +3829,8 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
             // Check if date is weekend
             $isWeekend = $dow >= 6; // Saturday = 6, Sunday = 7
             
-            // Check if date is working day for this employee
-            $isWorkingDay = isEmployeeWorkingDay($pdo, $uid, $dstr);
+            // Check if date is working day for this employee (using pre-fetched data)
+            $isWorkingDay = isEmployeeWorkingDay($pdo, $uid, $dstr, $preFetchedSchedule, $manualHolidayDates);
             
             // Determine ket value
             $ket = null;
