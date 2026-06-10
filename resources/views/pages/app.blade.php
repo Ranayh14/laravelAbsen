@@ -3249,8 +3249,8 @@ async function renderLaporan(){
                 return `<div class="text-center">
                     <button type="button" class="text-indigo-600 hover:text-indigo-800 flex flex-col items-center mx-auto"
                         onclick="loadAndShowEvidence('${attId}', '${mode}', '${title}')">
-                        <i class="fi fi-rr-face-viewfinder text-xl"></i>
-                        <span class="text-[10px] font-semibold uppercase">Lihat Wajah</span>
+                        <i class="fi fi-rr-picture text-xl"></i>
+                        <span class="text-[10px] font-semibold uppercase">Lihat Foto</span>
                     </button>
                 </div>`;
             }

@@ -4194,7 +4194,7 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
     if ($action === 'admin_get_help_notifications') {
         if (!isAdmin()) jsonResponse(['error' => 'Forbidden'], 403);
         
-        $stmt = $pdo->query("SELECT r.*, u.nama, u.nim FROM admin_help_requests r JOIN users u ON u.id = r.user_id WHERE r.status = 'pending' ORDER BY r.created_at DESC");
+        $stmt = $pdo->query("SELECT r.id, r.user_id, r.request_type, r.tanggal, r.jam_masuk, r.jam_pulang, r.alasan_izin, r.jenis_izin, r.lokasi_presensi, r.bug_description, r.status, r.admin_note, r.created_at, u.nama, u.nim FROM admin_help_requests r JOIN users u ON u.id = r.user_id WHERE r.status = 'pending' ORDER BY r.created_at DESC");
         $rows = $stmt->fetchAll();
         jsonResponse(['ok' => true, 'data' => $rows]);
     }
@@ -4202,9 +4202,22 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
     if ($action === 'admin_get_all_help_requests') {
         if (!isAdmin()) jsonResponse(['error' => 'Forbidden'], 403);
         
-        $stmt = $pdo->query("SELECT r.*, u.nama, u.nim FROM admin_help_requests r JOIN users u ON u.id = r.user_id ORDER BY r.created_at DESC");
+        $stmt = $pdo->query("SELECT r.id, r.user_id, r.request_type, r.tanggal, r.jam_masuk, r.jam_pulang, r.alasan_izin, r.jenis_izin, r.lokasi_presensi, r.bug_description, r.status, r.admin_note, r.created_at, u.nama, u.nim FROM admin_help_requests r JOIN users u ON u.id = r.user_id ORDER BY r.created_at DESC");
         $rows = $stmt->fetchAll();
         jsonResponse(['ok' => true, 'data' => $rows]);
+    }
+
+    if ($action === 'admin_get_help_request_detail') {
+        if (!isAdmin()) jsonResponse(['error' => 'Forbidden'], 403);
+        $id = (int)($_GET['id'] ?? 0);
+        $stmt = $pdo->prepare("SELECT r.*, u.nama, u.nim FROM admin_help_requests r JOIN users u ON u.id = r.user_id WHERE r.id = ? LIMIT 1");
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+        if ($row) {
+            jsonResponse(['ok' => true, 'data' => $row]);
+        } else {
+            jsonResponse(['ok' => false, 'message' => 'Detail tidak ditemukan'], 404);
+        }
     }
 
     if ($action === 'admin_handle_help_request' && $_SERVER['REQUEST_METHOD'] === 'POST') {

@@ -6673,8 +6673,8 @@ async function renderLaporan(){
                 </div>`;
             }
 
-            // 4. Has landmark but no photo
-            if (hasLandmarkFlag && landmarkData) {
+            // 4. Has screenshot/photo or landmark but no pre-loaded photo data
+            if (hasLandmarkFlag) {
                 const containerId = `proof-${mode}-${attId}`;
                 const type = mode === 'masuk' ? 'masuk' : 'pulang';
                 const html = `<div id="${containerId}" data-id="${attId}" data-type="${type}" class="lazy-evidence text-center w-12 h-10 mx-auto bg-gray-100 rounded-lg flex items-center justify-center overflow-hidden cursor-pointer border border-gray-200 shadow-sm" title="Klik untuk memperbesar">
@@ -11574,8 +11574,28 @@ qs('#work-schedule-save') && qs('#work-schedule-save').addEventListener('click',
 
     // Modal Details Logic
     window.showRequestDetail = async function(id) {
-        const item = window.allHelpRequests.find(i => i.id === id) || (await fetchSingleRequest(id));
-        if (!item) return;
+        showNotif('Memuat detail...', true);
+        let item = null;
+        try {
+            const res = await api('?ajax=admin_get_help_request_detail&id=' + id, {}, { suppressModal: true });
+            if (res.ok && res.data) {
+                item = res.data;
+            }
+        } catch (e) {
+            console.error('Error fetching request detail:', e);
+        }
+        
+        if (!item) {
+            item = window.allHelpRequests.find(i => i.id === id) || (await fetchSingleRequest(id));
+        }
+        
+        if (!item) {
+            showNotif('Gagal memuat detail permintaan', false);
+            return;
+        }
+        
+        // Hide notif once loaded
+        showNotif('Detail berhasil dimuat', true);
 
         const modal = qs('#request-detail-modal');
         const body = qs('#request-detail-body');
@@ -11678,6 +11698,14 @@ qs('#work-schedule-save') && qs('#work-schedule-save').addEventListener('click',
     }
 
     async function fetchSingleRequest(id) {
+        try {
+            const res = await api('?ajax=admin_get_help_request_detail&id=' + id, {}, { suppressModal: true });
+            if (res.ok && res.data) {
+                return res.data;
+            }
+        } catch (e) {
+            console.error('fetchSingleRequest error:', e);
+        }
         // Fallback to reload if not found
         await loadAllHelpRequests();
         return window.allHelpRequests.find(i => i.id === id);

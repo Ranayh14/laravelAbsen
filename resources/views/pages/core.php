@@ -2471,8 +2471,7 @@ function calculateKPIForEmployee(
         $daysWithoutReport = []; // Store dates that need daily report penalty
         
         // Process each working day
-        foreach ($workingDays as $date) {
-            $dateStr = $date->format('Y-m-d');
+        foreach ($workingDays as $dateStr) {
             
             // Skip dates before employee effective start date
             if ($dateStr < $effectiveStartDate) {
@@ -2786,10 +2785,10 @@ function getIndonesianNationalHolidays($year) {
 // Function to check if a date is a national holiday
 function isNationalHoliday($date) {
     static $holidaysMap = [];
-    $year = date('Y', strtotime($date));
+    $year = substr($date, 0, 4);
     
     if (!isset($holidaysMap[$year])) {
-        $holidays = getIndonesianNationalHolidays($year);
+        $holidays = getIndonesianNationalHolidays((int)$year);
         $holidaysMap[$year] = [];
         foreach ($holidays as $holiday) {
             $holidaysMap[$year][$holiday['date']] = true;
@@ -2871,21 +2870,48 @@ function isEmployeeWorkingDay(PDO $pdo, $userId, $date, $preFetchedSchedule = nu
 // Function to get working days for a specific employee in a period
 function getEmployeeWorkingDaysInPeriod(PDO $pdo, $userId, $startDate, $endDate, $preFetchedSchedule = null, $preFetchedManualHolidays = null) {
     $workingDays = [];
-    $start = new DateTime($startDate);
+    $current = new DateTime($startDate);
     $end = new DateTime($endDate);
     
-    while ($start <= $end) {
-        $dateStr = $start->format('Y-m-d');
+    $schedule = $preFetchedSchedule !== null ? $preFetchedSchedule : getEmployeeWorkSchedule($pdo, $userId);
+    $hasSchedule = !empty($schedule);
+    
+    $dayNames = [
+        1 => 'monday',
+        2 => 'tuesday',
+        3 => 'wednesday',
+        4 => 'thursday',
+        5 => 'friday',
+        6 => 'saturday',
+        7 => 'sunday'
+    ];
+    
+    while ($current <= $end) {
+        $dateStr = $current->format('Y-m-d');
+        $dayNum = (int)$current->format('N');
+        $dayOfWeek = $dayNames[$dayNum];
         
-        if (isEmployeeWorkingDay($pdo, $userId, $dateStr, $preFetchedSchedule, $preFetchedManualHolidays)) {
-            $workingDays[] = clone $start;
+        $isHoliday = isNationalHoliday($dateStr) || ($preFetchedManualHolidays !== null ? isset($preFetchedManualHolidays[$dateStr]) : isManualHoliday($pdo, $dateStr));
+        
+        $isWorkingDay = false;
+        if (!$hasSchedule) {
+            $isWorkingDay = $dayNum < 6 && !$isHoliday;
+        } else {
+            if (isset($schedule[$dayOfWeek])) {
+                $isWorkingDay = $schedule[$dayOfWeek]['is_working_day'] && !$isHoliday;
+            }
         }
         
-        $start->add(new DateInterval('P1D'));
+        if ($isWorkingDay) {
+            $workingDays[] = $dateStr;
+        }
+        
+        $current->modify('+1 day');
     }
     
     return $workingDays;
 }
+
 
 function getWorkingDaysInPeriod($startDate, $endDate) {
     $workingDays = [];
