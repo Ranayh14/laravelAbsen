@@ -413,6 +413,70 @@ function ensureSchema(PDO $pdo): void {
         // Ignore if column doesn't exist or already updated
         error_log("Monthly reports table update: " . $e->getMessage());
     }
+    // Optimize performance: Add indexes for date fields if they do not exist
+    try {
+        $pdo->exec("CREATE INDEX idx_attendance_jam_masuk_iso ON attendance (jam_masuk_iso)");
+    } catch (PDOException $e) {}
+    try {
+        $pdo->exec("CREATE INDEX idx_attendance_notes_date ON attendance_notes (date)");
+    } catch (PDOException $e) {}
+    try {
+        $pdo->exec("CREATE INDEX idx_daily_reports_report_date ON daily_reports (report_date)");
+    } catch (PDOException $e) {}
+
+    // Create KPI Monthly Cache table
+    try {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS kpi_monthly_cache (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                year INT NOT NULL,
+                month INT NOT NULL,
+                ontime_count INT NOT NULL DEFAULT 0,
+                wfo_count INT NOT NULL DEFAULT 0,
+                wfa_count INT NOT NULL DEFAULT 0,
+                late_count INT NOT NULL DEFAULT 0,
+                izin_sakit_count INT NOT NULL DEFAULT 0,
+                alpha_count INT NOT NULL DEFAULT 0,
+                overtime_count INT NOT NULL DEFAULT 0,
+                missing_daily_reports_count INT NOT NULL DEFAULT 0,
+                total_late_minutes INT NOT NULL DEFAULT 0,
+                total_working_days INT NOT NULL DEFAULT 0,
+                actual_working_days INT NOT NULL DEFAULT 0,
+                kpi_points DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                days_with_data INT NOT NULL DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_user_year_month (user_id, year, month),
+                CONSTRAINT fk_kmc_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+    } catch (PDOException $e) {
+        error_log("Failed to create kpi_monthly_cache table: " . $e->getMessage());
+    }
+
+    // Create database triggers for automatic cache invalidation
+    $triggers = [
+        'tg_attendance_insert' => "CREATE TRIGGER tg_attendance_insert AFTER INSERT ON attendance FOR EACH ROW DELETE FROM kpi_monthly_cache WHERE user_id = NEW.user_id AND (NEW.jam_masuk_iso IS NOT NULL AND year = YEAR(NEW.jam_masuk_iso) AND month = MONTH(NEW.jam_masuk_iso))",
+        'tg_attendance_update' => "CREATE TRIGGER tg_attendance_update AFTER UPDATE ON attendance FOR EACH ROW DELETE FROM kpi_monthly_cache WHERE user_id = OLD.user_id AND ((OLD.jam_masuk_iso IS NOT NULL AND year = YEAR(OLD.jam_masuk_iso) AND month = MONTH(OLD.jam_masuk_iso)) OR (NEW.jam_masuk_iso IS NOT NULL AND year = YEAR(NEW.jam_masuk_iso) AND month = MONTH(NEW.jam_masuk_iso)))",
+        'tg_attendance_delete' => "CREATE TRIGGER tg_attendance_delete AFTER DELETE ON attendance FOR EACH ROW DELETE FROM kpi_monthly_cache WHERE user_id = OLD.user_id AND (OLD.jam_masuk_iso IS NOT NULL AND year = YEAR(OLD.jam_masuk_iso) AND month = MONTH(OLD.jam_masuk_iso))",
+        
+        'tg_notes_insert' => "CREATE TRIGGER tg_notes_insert AFTER INSERT ON attendance_notes FOR EACH ROW DELETE FROM kpi_monthly_cache WHERE user_id = NEW.user_id AND year = YEAR(NEW.date) AND month = MONTH(NEW.date)",
+        'tg_notes_update' => "CREATE TRIGGER tg_notes_update AFTER UPDATE ON attendance_notes FOR EACH ROW DELETE FROM kpi_monthly_cache WHERE user_id = OLD.user_id AND ((year = YEAR(OLD.date) AND month = MONTH(OLD.date)) OR (year = YEAR(NEW.date) AND month = MONTH(NEW.date)))",
+        'tg_notes_delete' => "CREATE TRIGGER tg_notes_delete AFTER DELETE ON attendance_notes FOR EACH ROW DELETE FROM kpi_monthly_cache WHERE user_id = OLD.user_id AND year = YEAR(OLD.date) AND month = MONTH(OLD.date)",
+        
+        'tg_reports_insert' => "CREATE TRIGGER tg_reports_insert AFTER INSERT ON daily_reports FOR EACH ROW DELETE FROM kpi_monthly_cache WHERE user_id = NEW.user_id AND year = YEAR(NEW.report_date) AND month = MONTH(NEW.report_date)",
+        'tg_reports_update' => "CREATE TRIGGER tg_reports_update AFTER UPDATE ON daily_reports FOR EACH ROW DELETE FROM kpi_monthly_cache WHERE user_id = OLD.user_id AND ((year = YEAR(OLD.report_date) AND month = MONTH(OLD.report_date)) OR (year = YEAR(NEW.report_date) AND month = MONTH(NEW.report_date)))",
+        'tg_reports_delete' => "CREATE TRIGGER tg_reports_delete AFTER DELETE ON daily_reports FOR EACH ROW DELETE FROM kpi_monthly_cache WHERE user_id = OLD.user_id AND year = YEAR(OLD.report_date) AND month = MONTH(OLD.report_date)",
+    ];
+    
+    foreach ($triggers as $name => $sql) {
+        try {
+            $pdo->exec("DROP TRIGGER IF EXISTS $name");
+            $pdo->exec($sql);
+        } catch (PDOException $e) {
+            error_log("Failed to create trigger $name: " . $e->getMessage());
+        }
+    }
 }
 
 function verifyAttendanceTable(PDO $pdo): bool {
@@ -1225,6 +1289,17 @@ function triggerDatabaseBackup(): void {
 
 try {
     $pdo = getPdo();
+    
+    // Auto-create cache table if it doesn't exist to avoid manual intervention in production hosting
+    try {
+        $checkTable = $pdo->query("SHOW TABLES LIKE 'kpi_monthly_cache'");
+        if ($checkTable->rowCount() == 0) {
+            ensureSchema($pdo);
+        }
+    } catch (Exception $e) {
+        error_log("Failed to check or auto-initialize kpi_monthly_cache: " . $e->getMessage());
+    }
+    
     // PERFORMANCE: Only run schema verification if explicitly requested
     if (isset($_GET['install_db'])) {
         ensureSchema($pdo);
@@ -2228,7 +2303,7 @@ function processEnhancedAttendance($base64Image) {
 }
 
 // KPI Calculation Functions
-function calculateKPIForEmployee(
+function calculateKPIForEmployeeRaw(
     PDO $pdo, 
     $userId, 
     $periodStart = null, 
@@ -2301,9 +2376,6 @@ function calculateKPIForEmployee(
             $preFetchedSchedule = getEmployeeWorkSchedule($pdo, $userId);
         }
         
-        // Debug logging for period
-        error_log("KPI Debug - User $userId: Period start: $periodStart, Period end: $periodEnd");
-        
         // Get attendance records for the period (WFO, WFA, Overtime only)
         if ($preFetchedAttendance !== null) {
             $attendanceRecords = $preFetchedAttendance;
@@ -2354,14 +2426,6 @@ function calculateKPIForEmployee(
             $attendanceRecords = $st->fetchAll();
         }
         
-        // Debug: log attendance records to see late_minutes values
-        error_log("KPI Debug - User $userId: Found " . count($attendanceRecords) . " attendance records");
-        foreach ($attendanceRecords as $idx => $rec) {
-            if ($rec['status'] === 'terlambat') {
-                error_log("KPI Debug - User $userId: Record $idx - Date: {$rec['attendance_date']}, Status: {$rec['status']}, jam_masuk: {$rec['jam_masuk']}, jam_masuk_iso: {$rec['jam_masuk_iso']}, late_minutes: {$rec['late_minutes']}");
-            }
-        }
-        
         // Get izin/sakit records from attendance_notes table
         if ($preFetchedIzinNotes !== null) {
             $izinNotesRecords = $preFetchedIzinNotes;
@@ -2381,10 +2445,6 @@ function calculateKPIForEmployee(
             ]);
             $izinNotesRecords = $stmt->fetchAll();
         }
-        
-        // Debug logging for izin/sakit records
-        error_log("KPI Debug - User $userId: Found " . count($izinNotesRecords) . " izin/sakit records in period $periodStart to $periodEnd");
-        error_log("KPI Debug - Employee effective start date: $effectiveStartDate");
         
         // Get overtime records (attendance marked as 'overtime')
         if ($preFetchedOvertime !== null) {
@@ -2443,8 +2503,6 @@ function calculateKPIForEmployee(
             }
         }
         
-        error_log("KPI Debug - User $userId: Total izin/sakit dates in map: " . count($izinDates));
-        
         $overtimeDates = [];
         foreach ($overtimeRecords as $record) {
             $overtimeDates[$record['overtime_date']] = $record;
@@ -2495,7 +2553,6 @@ function calculateKPIForEmployee(
                 // Check if it's izin/sakit first (from attendance_notes table)
                 if (isset($izinDates[$dateStr])) {
                     $izinSakitCount++;
-                    error_log("KPI Debug - User $userId: Found izin/sakit on $dateStr, count now: $izinSakitCount");
                 } else if ($attendanceRecord) {
                     // Check if daily report exists for this date
                     $hasDailyReport = isset($dailyReportsMap[$dateStr]);
@@ -2504,7 +2561,6 @@ function calculateKPIForEmployee(
                     if (!$hasDailyReport && ($attendanceRecord['ket'] === 'wfo' || $attendanceRecord['ket'] === 'wfa')) {
                         $missingDailyReportsCount++;
                         $daysWithoutReport[] = $dateStr;
-                        error_log("KPI Debug - User $userId: Missing daily report on $dateStr");
                     }
                     
                     // Check attendance status (only WFO, WFA, Overtime)
@@ -2516,7 +2572,6 @@ function calculateKPIForEmployee(
                         } else if ($attendanceRecord['ket'] === 'wfa') {
                             $wfaCount++;
                         }
-                        error_log("KPI Debug - User $userId: Found ontime on $dateStr");
                     } else {
                         $lateCount++;
                         // Count WFO and WFA even if late
@@ -2529,7 +2584,6 @@ function calculateKPIForEmployee(
                         $totalLateMinutes += $lateMinutes;
                         // Store late record with minutes for per-occurrence calculation
                         $lateRecords[] = $lateMinutes;
-                        error_log("KPI Debug - User $userId: Found late on $dateStr, late_minutes from DB: {$attendanceRecord['late_minutes']}, jam_masuk: {$attendanceRecord['jam_masuk']}, jam_masuk_iso: {$attendanceRecord['jam_masuk_iso']}, status: {$attendanceRecord['status']}");
                     }
                 } else {
                     // No attendance and no izin/sakit = alpha (only for past dates)
@@ -2560,35 +2614,23 @@ function calculateKPIForEmployee(
         
         // Use the direct count if it's different from the loop count
         if ($directIzinSakitCount != $izinSakitCount) {
-            error_log("KPI Debug - User $userId: Correcting izin/sakit count from $izinSakitCount to $directIzinSakitCount");
             $izinSakitCount = $directIzinSakitCount;
         }
-        
-        // Debug logging for final counts
-        error_log("KPI Debug - User $userId: Final counts - Ontime: $ontimeCount, Late: $lateCount, Izin/Sakit: $izinSakitCount, Alpha: $alphaCount, Overtime: $overtimeCount");
-        error_log("KPI Debug - User $userId: actualWorkingDays from loop: $actualWorkingDays");
-        error_log("KPI Debug - User $userId: lateRecords count: " . count($lateRecords) . ", lateRecords: " . print_r($lateRecords, true));
         
         // Calculate actual working days based on days with actual data
         // This should be the sum of all days with attendance records (ontime, late, alpha, izin/sakit)
         // NOT the total working days in period, because we only calculate KPI for days with data
         $daysWithData = (int)$ontimeCount + (int)$lateCount + (int)$izinSakitCount + (int)$alphaCount;
         
-        error_log("KPI Debug - User $userId: daysWithData calculation: $ontimeCount + $lateCount + $izinSakitCount + $alphaCount = $daysWithData");
-        
         // IMPORTANT: Always use daysWithData as divisor if it's greater than 0
         // This ensures KPI is calculated correctly: total score / days with data
         // Only fallback to actualWorkingDays if daysWithData is 0 (shouldn't happen in normal cases)
         if ($daysWithData > 0) {
             $actualDaysForKPI = $daysWithData;
-            error_log("KPI Debug - User $userId: Using daysWithData ($daysWithData) as divisor");
         } else {
             // Fallback: use actualWorkingDays only if no data at all
             $actualDaysForKPI = $actualWorkingDays > 0 ? $actualWorkingDays : 1; // Prevent division by zero
-            error_log("KPI Debug - User $userId: WARNING - daysWithData is 0, using actualWorkingDays ($actualDaysForKPI) as fallback");
         }
-        
-        error_log("KPI Debug - User $userId: Final divisor (actualDaysForKPI): $actualDaysForKPI");
         
         // Calculate KPI score using new per-occurrence method
         // Formula: 
@@ -2603,7 +2645,6 @@ function calculateKPIForEmployee(
         // On-time: 100% each
         $ontimeScore = $ontimeCount * 100;
         $kpiScore += $ontimeScore;
-        error_log("KPI Debug - User $userId: Ontime score: $ontimeScore (count: $ontimeCount)");
         
         // Late: calculate per occurrence (100% - minutes late)
         $lateTotalScore = 0;
@@ -2614,24 +2655,19 @@ function calculateKPIForEmployee(
             $lateScore = 100 - $lateMinutes; // 100% - minutes late
             $lateScore = max(0, $lateScore); // Ensure not negative (if terlambat > 100 menit, score = 0)
             $lateTotalScore += $lateScore;
-            error_log("KPI Debug - User $userId: Late occurrence: $lateMinutes minutes late = $lateScore score (100 - $lateMinutes = $lateScore)");
         }
         $kpiScore += $lateTotalScore;
-        error_log("KPI Debug - User $userId: Late total score: $lateTotalScore (count: $lateCount, records: " . print_r($lateRecords, true) . ")");
         
         // Alpha: 0% each (no need to add, already 0)
         // $kpiScore += ($alphaCount * 0); // Not needed
-        error_log("KPI Debug - User $userId: Alpha count: $alphaCount (score: 0)");
         
         // Izin/Sakit: use setting score (default 85%)
         $izinSakitScoreTotal = $izinSakitCount * $izinSakitScore;
         $kpiScore += $izinSakitScoreTotal;
-        error_log("KPI Debug - User $userId: Izin/Sakit score: $izinSakitScoreTotal (count: $izinSakitCount, per occurrence: $izinSakitScore)");
         
         // Overtime: bonus (default 5% per occurrence)
         $overtimeScoreTotal = $overtimeCount * $overtimeBonus;
         $kpiScore += $overtimeScoreTotal;
-        error_log("KPI Debug - User $userId: Overtime score: $overtimeScoreTotal (count: $overtimeCount, per occurrence: $overtimeBonus)");
         
         // Apply daily report penalty: reduce 50% per day without report
         // This penalty is applied per day, not from total score
@@ -2653,20 +2689,18 @@ function calculateKPIForEmployee(
                 // Reduce 50% of that day's score
                 $penaltyForDay = $dayScore * 0.5;
                 $dailyReportPenalty += $penaltyForDay;
-                error_log("KPI Debug - User $userId: Daily report penalty for $dateWithoutReport: $penaltyForDay (day score: $dayScore)");
             }
         }
         $kpiScore -= $dailyReportPenalty;
-        error_log("KPI Debug - User $userId: Total daily report penalty: $dailyReportPenalty, score after penalty: $kpiScore");
+
+        // Store raw points before dividing
+        $kpiPoints = $kpiScore;
 
         // Calculate average based on days with actual data
-        error_log("KPI Debug - User $userId: Total score before division: $kpiScore, Divided by: $actualDaysForKPI");
         $kpiScore = $kpiScore / $actualDaysForKPI;
-        error_log("KPI Debug - User $userId: KPI score after division: $kpiScore");
         
         // Ensure score is between 0 and 100
         $kpiScore = max(0, min(100, $kpiScore));
-        error_log("KPI Debug - User $userId: Final KPI score: $kpiScore");
         
         // Determine KPI status
         $status = 'Very Poor';
@@ -2692,6 +2726,8 @@ function calculateKPIForEmployee(
             'overtime_count' => $overtimeCount,
             'missing_daily_reports_count' => $missingDailyReportsCount,
             'total_late_minutes' => $totalLateMinutes,
+            'kpi_points' => $kpiPoints,
+            'days_with_data' => $actualDaysForKPI,
             'kpi_score' => round($kpiScore, 2),
             'status' => $status,
             'period_start' => $periodStart,
@@ -2704,6 +2740,288 @@ function calculateKPIForEmployee(
         return null;
     }
 }
+
+function calculateKPIForEmployee(
+    PDO $pdo, 
+    $userId, 
+    $periodStart = null, 
+    $periodEnd = null, 
+    $preFetchedManualHolidays = null, 
+    $preFetchedSchedule = null,
+    $preFetchedEmployee = null,
+    $preFetchedAttendance = null,
+    $preFetchedIzinNotes = null,
+    $preFetchedOvertime = null,
+    $preFetchedDailyReports = null,
+    $workStartDateOverride = null
+) {
+    // If any pre-fetched parameters are provided, bypass cache and calculate raw
+    if ($preFetchedManualHolidays !== null || $preFetchedSchedule !== null || 
+        $preFetchedEmployee !== null || $preFetchedAttendance !== null || 
+        $preFetchedIzinNotes !== null || $preFetchedOvertime !== null || 
+        $preFetchedDailyReports !== null) {
+        return calculateKPIForEmployeeRaw(
+            $pdo, $userId, $periodStart, $periodEnd, 
+            $preFetchedManualHolidays, $preFetchedSchedule, $preFetchedEmployee, 
+            $preFetchedAttendance, $preFetchedIzinNotes, $preFetchedOvertime, 
+            $preFetchedDailyReports, $workStartDateOverride
+        );
+    }
+    
+    // Get employee details
+    if ($preFetchedEmployee !== null) {
+        $employee = $preFetchedEmployee;
+    } else {
+        $stmt = $pdo->prepare("SELECT nama, created_at, nim, startup, foto_base64 FROM users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $employee = $stmt->fetch();
+    }
+    if (!$employee) return null;
+    
+    // Normalize period start and end
+    if (!$periodStart) {
+        $employeeReg = $employee['created_at'];
+        $periodStart = date('Y-m-d', strtotime($employeeReg));
+        // Check for override
+        try {
+            $k = 'work_start_date_user_' . $userId;
+            $val = getSetting($pdo, $k);
+            if ($val) {
+                $periodStart = $val;
+            }
+        } catch (Exception $e) {}
+    }
+    if (!$periodEnd) {
+        $periodEnd = date('Y-m-d');
+    }
+    
+    // Calculate month intervals
+    $startDateTime = new DateTime($periodStart);
+    $endDateTime = new DateTime($periodEnd);
+    $currentYearMonth = date('Y-m');
+    
+    $months = [];
+    $iter = new DateTime($periodStart);
+    $iter->modify('first day of this month');
+    while ($iter <= $endDateTime) {
+        $mYear = (int)$iter->format('Y');
+        $mMonth = (int)$iter->format('n');
+        $mYearMonthStr = $iter->format('Y-m');
+        
+        $mStart = max($periodStart, $iter->format('Y-m-01'));
+        $mEnd = min($periodEnd, $iter->format('Y-m-t'));
+        
+        $isFullMonth = ($mStart === $iter->format('Y-m-01') && $mEnd === $iter->format('Y-m-t'));
+        $isPastMonth = ($mYearMonthStr < $currentYearMonth);
+        
+        $months[] = [
+            'year' => $mYear,
+            'month' => $mMonth,
+            'start' => $mStart,
+            'end' => $mEnd,
+            'cacheable' => ($isFullMonth && $isPastMonth)
+        ];
+        
+        $iter->modify('+1 month');
+    }
+    
+    // Aggregate data
+    $aggregated = [
+        'total_working_days' => 0,
+        'actual_working_days' => 0,
+        'ontime_count' => 0,
+        'wfo_count' => 0,
+        'wfa_count' => 0,
+        'late_count' => 0,
+        'izin_sakit_count' => 0,
+        'alpha_count' => 0,
+        'overtime_count' => 0,
+        'missing_daily_reports_count' => 0,
+        'total_late_minutes' => 0,
+        'kpi_points' => 0.00,
+        'days_with_data' => 0
+    ];
+    
+    foreach ($months as $m) {
+        $cachedRow = null;
+        if ($m['cacheable']) {
+            // Check cache
+            $cStmt = $pdo->prepare("SELECT * FROM kpi_monthly_cache WHERE user_id = :user_id AND year = :year AND month = :month LIMIT 1");
+            $cStmt->execute([':user_id' => $userId, ':year' => $m['year'], ':month' => $m['month']]);
+            $cachedRow = $cStmt->fetch();
+            
+            if (!$cachedRow) {
+                // Not cached, calculate raw for this full month
+                $raw = calculateKPIForEmployeeRaw(
+                    $pdo, $userId, $m['start'], $m['end'], 
+                    null, null, $employee, null, null, null, null, $workStartDateOverride
+                );
+                if ($raw) {
+                    // Save to cache
+                    try {
+                        $ins = $pdo->prepare("
+                            INSERT INTO kpi_monthly_cache (
+                                user_id, year, month, ontime_count, wfo_count, wfa_count, 
+                                late_count, izin_sakit_count, alpha_count, overtime_count, 
+                                missing_daily_reports_count, total_late_minutes, total_working_days, 
+                                actual_working_days, kpi_points, days_with_data
+                            ) VALUES (
+                                :user_id, :year, :month, :ontime_count, :wfo_count, :wfa_count, 
+                                :late_count, :izin_sakit_count, :alpha_count, :overtime_count, 
+                                :missing_daily_reports_count, :total_late_minutes, :total_working_days, 
+                                :actual_working_days, :kpi_points, :days_with_data
+                            ) ON DUPLICATE KEY UPDATE 
+                                ontime_count = VALUES(ontime_count),
+                                wfo_count = VALUES(wfo_count),
+                                wfa_count = VALUES(wfa_count),
+                                late_count = VALUES(late_count),
+                                izin_sakit_count = VALUES(izin_sakit_count),
+                                alpha_count = VALUES(alpha_count),
+                                overtime_count = VALUES(overtime_count),
+                                missing_daily_reports_count = VALUES(missing_daily_reports_count),
+                                total_late_minutes = VALUES(total_late_minutes),
+                                total_working_days = VALUES(total_working_days),
+                                actual_working_days = VALUES(actual_working_days),
+                                kpi_points = VALUES(kpi_points),
+                                days_with_data = VALUES(days_with_data)
+                        ");
+                        $ins->execute([
+                            ':user_id' => $userId,
+                            ':year' => $m['year'],
+                            ':month' => $m['month'],
+                            ':ontime_count' => $raw['ontime_count'],
+                            ':wfo_count' => $raw['wfo_count'],
+                            ':wfa_count' => $raw['wfa_count'],
+                            ':late_count' => $raw['late_count'],
+                            ':izin_sakit_count' => $raw['izin_sakit_count'],
+                            ':alpha_count' => $raw['alpha_count'],
+                            ':overtime_count' => $raw['overtime_count'],
+                            ':missing_daily_reports_count' => $raw['missing_daily_reports_count'],
+                            ':total_late_minutes' => $raw['total_late_minutes'],
+                            ':total_working_days' => $raw['total_working_days'],
+                            ':actual_working_days' => $raw['actual_working_days'],
+                            ':kpi_points' => $raw['kpi_points'] ?? 0.00,
+                            ':days_with_data' => $raw['days_with_data'] ?? 0
+                        ]);
+                    } catch (Exception $e) {
+                        error_log("Failed to write to KPI cache: " . $e->getMessage());
+                    }
+                    $cachedRow = $raw;
+                }
+            }
+        }
+        
+        if ($cachedRow) {
+            $aggregated['total_working_days'] += $cachedRow['total_working_days'];
+            $aggregated['actual_working_days'] += $cachedRow['actual_working_days'];
+            $aggregated['ontime_count'] += $cachedRow['ontime_count'];
+            $aggregated['wfo_count'] += $cachedRow['wfo_count'];
+            $aggregated['wfa_count'] += $cachedRow['wfa_count'];
+            $aggregated['late_count'] += $cachedRow['late_count'];
+            $aggregated['izin_sakit_count'] += $cachedRow['izin_sakit_count'];
+            $aggregated['alpha_count'] += $cachedRow['alpha_count'];
+            $aggregated['overtime_count'] += $cachedRow['overtime_count'];
+            $aggregated['missing_daily_reports_count'] += $cachedRow['missing_daily_reports_count'];
+            $aggregated['total_late_minutes'] += $cachedRow['total_late_minutes'];
+            $aggregated['kpi_points'] += ($cachedRow['kpi_points'] ?? 0.00);
+            $aggregated['days_with_data'] += ($cachedRow['days_with_data'] ?? 0);
+        } else {
+            // Calculate on the fly for non-cacheable range
+            $raw = calculateKPIForEmployeeRaw(
+                $pdo, $userId, $m['start'], $m['end'], 
+                null, null, $employee, null, null, null, null, $workStartDateOverride
+            );
+            if ($raw) {
+                $aggregated['total_working_days'] += $raw['total_working_days'];
+                $aggregated['actual_working_days'] += $raw['actual_working_days'];
+                $aggregated['ontime_count'] += $raw['ontime_count'];
+                $aggregated['wfo_count'] += $raw['wfo_count'];
+                $aggregated['wfa_count'] += $raw['wfa_count'];
+                $aggregated['late_count'] += $raw['late_count'];
+                $aggregated['izin_sakit_count'] += $raw['izin_sakit_count'];
+                $aggregated['alpha_count'] += $raw['alpha_count'];
+                $aggregated['overtime_count'] += $raw['overtime_count'];
+                $aggregated['missing_daily_reports_count'] += $raw['missing_daily_reports_count'];
+                $aggregated['total_late_minutes'] += $raw['total_late_minutes'];
+                $aggregated['kpi_points'] += ($raw['kpi_points'] ?? 0.00);
+                $aggregated['days_with_data'] += ($raw['days_with_data'] ?? 0);
+            }
+        }
+    }
+    
+    // Calculate final KPI score
+    $finalScore = 0.00;
+    if ($aggregated['days_with_data'] > 0) {
+        $finalScore = $aggregated['kpi_points'] / $aggregated['days_with_data'];
+    }
+    $finalScore = max(0, min(100, $finalScore));
+    
+    // Determine status
+    $status = 'Very Poor';
+    if ($finalScore >= 90) $status = 'Excellent';
+    elseif ($finalScore >= 80) $status = 'Good';
+    elseif ($finalScore >= 70) $status = 'Fair';
+    elseif ($finalScore >= 60) $status = 'Poor';
+    
+    return [
+        'user_id' => $userId,
+        'nama' => $employee['nama'],
+        'nim' => $employee['nim'] ?? '-',
+        'startup' => $employee['startup'] ?? '-',
+        'foto_base64' => $employee['foto_base64'] ?? '',
+        'total_working_days' => $aggregated['total_working_days'],
+        'actual_working_days' => $aggregated['actual_working_days'],
+        'ontime_count' => $aggregated['ontime_count'],
+        'wfo_count' => $aggregated['wfo_count'],
+        'wfa_count' => $aggregated['wfa_count'],
+        'late_count' => $aggregated['late_count'],
+        'izin_sakit_count' => $aggregated['izin_sakit_count'],
+        'alpha_count' => $aggregated['alpha_count'],
+        'overtime_count' => $aggregated['overtime_count'],
+        'missing_daily_reports_count' => $aggregated['missing_daily_reports_count'],
+        'total_late_minutes' => $aggregated['total_late_minutes'],
+        'kpi_score' => round($finalScore, 2),
+        'status' => $status,
+        'period_start' => $periodStart,
+        'period_end' => $periodEnd,
+        'employee_registration_date' => $employee['created_at']
+    ];
+}
+
+function clearKpiCache(PDO $pdo, $userId, $date) {
+    if (!$userId || !$date) return;
+    try {
+        $year = (int)date('Y', strtotime($date));
+        $month = (int)date('m', strtotime($date));
+        $stmt = $pdo->prepare("DELETE FROM kpi_monthly_cache WHERE user_id = :user_id AND year = :year AND month = :month");
+        $stmt->execute([':user_id' => $userId, ':year' => $year, ':month' => $month]);
+    } catch (Exception $e) {
+        error_log("Failed to clear KPI cache: " . $e->getMessage());
+    }
+}
+
+function clearAllKpiCache(PDO $pdo) {
+    try {
+        $pdo->exec("TRUNCATE TABLE kpi_monthly_cache");
+    } catch (Exception $e) {
+        error_log("Failed to truncate KPI cache: " . $e->getMessage());
+    }
+}
+
+function filterLiveRecords(array $records, $startDate, $endDate, $dateField = 'attendance_date') {
+    $filtered = [];
+    foreach ($records as $r) {
+        $dateVal = $r[$dateField] ?? null;
+        if (!$dateVal && $dateField === 'attendance_date') {
+            $dateVal = isset($r['jam_masuk_iso']) ? date('Y-m-d', strtotime($r['jam_masuk_iso'])) : null;
+        }
+        if ($dateVal && $dateVal >= $startDate && $dateVal <= $endDate) {
+            $filtered[] = $r;
+        }
+    }
+    return $filtered;
+}
+
 
 
 // Function to get Indonesian national holidays for a given year
@@ -2869,29 +3187,50 @@ function isEmployeeWorkingDay(PDO $pdo, $userId, $date, $preFetchedSchedule = nu
 
 // Function to get working days for a specific employee in a period
 function getEmployeeWorkingDaysInPeriod(PDO $pdo, $userId, $startDate, $endDate, $preFetchedSchedule = null, $preFetchedManualHolidays = null) {
-    $workingDays = [];
-    $current = new DateTime($startDate);
-    $end = new DateTime($endDate);
+    static $calendarCache = [];
+    $cacheKey = $startDate . '_' . $endDate;
     
+    if (!isset($calendarCache[$cacheKey])) {
+        $days = [];
+        $current = new DateTime($startDate);
+        $end = new DateTime($endDate);
+        
+        $dayNames = [
+            1 => 'monday',
+            2 => 'tuesday',
+            3 => 'wednesday',
+            4 => 'thursday',
+            5 => 'friday',
+            6 => 'saturday',
+            7 => 'sunday'
+        ];
+        
+        while ($current <= $end) {
+            $dateStr = $current->format('Y-m-d');
+            $dayNum = (int)$current->format('N');
+            $isHoliday = isNationalHoliday($dateStr) || ($preFetchedManualHolidays !== null ? isset($preFetchedManualHolidays[$dateStr]) : isManualHoliday($pdo, $dateStr));
+            
+            $days[] = [
+                'date' => $dateStr,
+                'dayNum' => $dayNum,
+                'dayName' => $dayNames[$dayNum],
+                'isHoliday' => $isHoliday
+            ];
+            $current->modify('+1 day');
+        }
+        $calendarCache[$cacheKey] = $days;
+    }
+    
+    $calendarDays = $calendarCache[$cacheKey];
     $schedule = $preFetchedSchedule !== null ? $preFetchedSchedule : getEmployeeWorkSchedule($pdo, $userId);
     $hasSchedule = !empty($schedule);
     
-    $dayNames = [
-        1 => 'monday',
-        2 => 'tuesday',
-        3 => 'wednesday',
-        4 => 'thursday',
-        5 => 'friday',
-        6 => 'saturday',
-        7 => 'sunday'
-    ];
-    
-    while ($current <= $end) {
-        $dateStr = $current->format('Y-m-d');
-        $dayNum = (int)$current->format('N');
-        $dayOfWeek = $dayNames[$dayNum];
-        
-        $isHoliday = isNationalHoliday($dateStr) || ($preFetchedManualHolidays !== null ? isset($preFetchedManualHolidays[$dateStr]) : isManualHoliday($pdo, $dateStr));
+    $workingDays = [];
+    foreach ($calendarDays as $day) {
+        $dateStr = $day['date'];
+        $dayNum = $day['dayNum'];
+        $dayOfWeek = $day['dayName'];
+        $isHoliday = $day['isHoliday'];
         
         $isWorkingDay = false;
         if (!$hasSchedule) {
@@ -2905,8 +3244,6 @@ function getEmployeeWorkingDaysInPeriod(PDO $pdo, $userId, $startDate, $endDate,
         if ($isWorkingDay) {
             $workingDays[] = $dateStr;
         }
-        
-        $current->modify('+1 day');
     }
     
     return $workingDays;
@@ -3006,17 +3343,17 @@ function getEmployeeRegistrationDate(PDO $pdo, $userId) {
     }
 }
 
-function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = null) {
+function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = null, $includePhotos = false) {
     try {
         $periodStart = $customPeriodStart ?? getEarliestEmployeeRegistrationDate($pdo);
-        $periodEnd = $customPeriodEnd ?? date('Y-m-d'); // Use current date instead of period end
+        $periodEnd = $customPeriodEnd ?? date('Y-m-d');
         
-        // Get all employees with their details
-        $stmt = $pdo->prepare("SELECT id, nama, created_at, nim, startup, foto_base64 FROM users WHERE role = 'pegawai' ORDER BY nama");
+        // Get all employees
+        $photoField = $includePhotos ? ", foto_base64" : "";
+        $stmt = $pdo->prepare("SELECT id, nama, created_at, nim, startup $photoField FROM users WHERE role = 'pegawai' ORDER BY nama");
         $stmt->execute();
         $employees = $stmt->fetchAll();
         
-        // If no employees, return empty data
         if (empty($employees)) {
             return [
                 'period_start' => $periodStart,
@@ -3025,28 +3362,201 @@ function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = n
             ];
         }
         
-        // Pre-fetch manual holidays once for the entire period
-        $manualHolidaysList = getManualHolidaysInRange($pdo, $periodStart, $periodEnd);
-        $preFetchedManualHolidays = [];
-        foreach ($manualHolidaysList as $mh) {
-            $preFetchedManualHolidays[$mh['date']] = true;
+        // Break period into months
+        $currentYearMonth = date('Y-m');
+        $iter = new DateTime($periodStart);
+        $iter->modify('first day of this month');
+        $endDateTime = new DateTime($periodEnd);
+        
+        $cachedMonths = [];
+        $liveRanges = [];
+        
+        while ($iter <= $endDateTime) {
+            $mYear = (int)$iter->format('Y');
+            $mMonth = (int)$iter->format('n');
+            $mYearMonthStr = $iter->format('Y-m');
+            
+            $mStart = max($periodStart, $iter->format('Y-m-01'));
+            $mEnd = min($periodEnd, $iter->format('Y-m-t'));
+            
+            $isFullMonth = ($mStart === $iter->format('Y-m-01') && $mEnd === $iter->format('Y-m-t'));
+            $isPastMonth = ($mYearMonthStr < $currentYearMonth);
+            
+            if ($isFullMonth && $isPastMonth) {
+                $cachedMonths[] = ['year' => $mYear, 'month' => $mMonth];
+            } else {
+                $liveRanges[] = ['start' => $mStart, 'end' => $mEnd];
+            }
+            $iter->modify('+1 month');
         }
         
-        // Fetch all schedules in one query and group them by user_id
-        $schedulesStmt = $pdo->prepare("SELECT * FROM employee_work_schedule");
-        $schedulesStmt->execute();
-        $allSchedules = $schedulesStmt->fetchAll();
-        $schedulesByUser = [];
-        foreach ($allSchedules as $sch) {
-            $uid = $sch['user_id'];
-            if (!isset($schedulesByUser[$uid])) {
-                $schedulesByUser[$uid] = [];
+        // 1. Fetch cached months for all employees in bulk
+        $cachedDataByUser = [];
+        if (!empty($cachedMonths)) {
+            $whereParts = [];
+            $params = [];
+            foreach ($cachedMonths as $idx => $cm) {
+                $whereParts[] = "(year = :y$idx AND month = :m$idx)";
+                $params[":y$idx"] = $cm['year'];
+                $params[":m$idx"] = $cm['month'];
             }
-            $schedulesByUser[$uid][$sch['day_of_week']] = [
-                'is_working_day' => (bool)$sch['is_working_day'],
-                'start_time' => $sch['start_time'],
-                'end_time' => $sch['end_time']
-            ];
+            $whereSql = implode(' OR ', $whereParts);
+            $cStmt = $pdo->prepare("SELECT * FROM kpi_monthly_cache WHERE $whereSql");
+            $cStmt->execute($params);
+            $allCachedRows = $cStmt->fetchAll();
+            
+            foreach ($allCachedRows as $row) {
+                $uid = $row['user_id'];
+                if (!isset($cachedDataByUser[$uid])) {
+                    $cachedDataByUser[$uid] = [];
+                }
+                $cachedDataByUser[$uid][] = $row;
+            }
+        }
+        
+        // 2. Pre-fetch raw data ONLY for the live/ongoing ranges
+        $hasLiveRange = !empty($liveRanges);
+        $preFetchedManualHolidays = [];
+        $schedulesByUser = [];
+        $attendanceByUser = [];
+        $notesByUser = [];
+        $overtimeByUser = [];
+        $reportsByUser = [];
+        
+        if ($hasLiveRange) {
+            $starts = array_map(function($r) { return $r['start']; }, $liveRanges);
+            $ends = array_map(function($r) { return $r['end']; }, $liveRanges);
+            $liveStart = min($starts);
+            $liveEnd = max($ends);
+            
+            $manualHolidaysList = getManualHolidaysInRange($pdo, $liveStart, $liveEnd);
+            foreach ($manualHolidaysList as $mh) {
+                $preFetchedManualHolidays[$mh['date']] = true;
+            }
+            
+            $schedulesStmt = $pdo->prepare("SELECT * FROM employee_work_schedule");
+            $schedulesStmt->execute();
+            $allSchedules = $schedulesStmt->fetchAll();
+            foreach ($allSchedules as $sch) {
+                $uid = $sch['user_id'];
+                if (!isset($schedulesByUser[$uid])) {
+                    $schedulesByUser[$uid] = [];
+                }
+                $schedulesByUser[$uid][$sch['day_of_week']] = [
+                    'is_working_day' => (bool)$sch['is_working_day'],
+                    'start_time' => $sch['start_time'],
+                    'end_time' => $sch['end_time']
+                ];
+            }
+            
+            $maxOntimeHour = (int)getSetting($pdo, 'max_ontime_hour', '8');
+            $attendanceStmt = $pdo->prepare("
+                SELECT 
+                    user_id,
+                    DATE(jam_masuk_iso) as attendance_date,
+                    jam_masuk_iso,
+                    jam_masuk,
+                    status,
+                    ket,
+                    CASE 
+                        WHEN status = 'terlambat' AND jam_masuk IS NOT NULL THEN 
+                            GREATEST(0, 
+                                FLOOR(
+                                    TIMESTAMPDIFF(MINUTE, 
+                                        CONCAT('2000-01-01 ', LPAD(:max_ontime_hour1, 2, '0'), ':00:00'),
+                                        CONCAT('2000-01-01 ', 
+                                            CASE 
+                                                WHEN LENGTH(jam_masuk) = 5 THEN CONCAT(jam_masuk, ':00')
+                                                ELSE jam_masuk
+                                            END
+                                        )
+                                    )
+                                )
+                            )
+                        WHEN status = 'terlambat' AND jam_masuk IS NULL THEN 
+                            GREATEST(0, TIMESTAMPDIFF(MINUTE, 
+                                CONCAT(DATE(jam_masuk_iso), ' ', LPAD(:max_ontime_hour2, 2, '0'), ':00:00'), 
+                                jam_masuk_iso
+                            ))
+                        ELSE 0 
+                    END as late_minutes
+                FROM attendance 
+                WHERE jam_masuk_iso BETWEEN :period_start AND :period_end
+                AND ket IN ('wfo', 'wfa', 'overtime')
+                ORDER BY jam_masuk_iso ASC
+            ");
+            $attendanceStmt->execute([
+                'period_start' => $liveStart . ' 00:00:00',
+                'period_end' => $liveEnd . ' 23:59:59',
+                'max_ontime_hour1' => $maxOntimeHour,
+                'max_ontime_hour2' => $maxOntimeHour
+            ]);
+            $allAttendance = $attendanceStmt->fetchAll();
+            foreach ($allAttendance as $att) {
+                $uid = $att['user_id'];
+                if (!isset($attendanceByUser[$uid])) {
+                    $attendanceByUser[$uid] = [];
+                }
+                $attendanceByUser[$uid][] = $att;
+            }
+            
+            $notesStmt = $pdo->prepare("
+                SELECT user_id, date as izin_date, type as status
+                FROM attendance_notes 
+                WHERE type IN ('izin', 'sakit')
+                AND date BETWEEN :period_start AND :period_end
+                ORDER BY date
+            ");
+            $notesStmt->execute([
+                'period_start' => $liveStart,
+                'period_end' => $liveEnd
+            ]);
+            $allNotes = $notesStmt->fetchAll();
+            foreach ($allNotes as $note) {
+                $uid = $note['user_id'];
+                if (!isset($notesByUser[$uid])) {
+                    $notesByUser[$uid] = [];
+                }
+                $notesByUser[$uid][] = $note;
+            }
+            
+            $overtimeStmt = $pdo->prepare("
+                SELECT user_id, DATE(jam_masuk_iso) as overtime_date, status, jam_masuk_iso, jam_masuk
+                FROM attendance 
+                WHERE DATE(jam_masuk_iso) BETWEEN :period_start AND :period_end
+                AND ket = 'overtime'
+                ORDER BY jam_masuk_iso ASC
+            ");
+            $overtimeStmt->execute([
+                'period_start' => $liveStart,
+                'period_end' => $liveEnd
+            ]);
+            $allOvertime = $overtimeStmt->fetchAll();
+            foreach ($allOvertime as $ot) {
+                $uid = $ot['user_id'];
+                if (!isset($overtimeByUser[$uid])) {
+                    $overtimeByUser[$uid] = [];
+                }
+                $overtimeByUser[$uid][] = $ot;
+            }
+            
+            $reportsStmt = $pdo->prepare("
+                SELECT user_id, report_date 
+                FROM daily_reports 
+                WHERE report_date BETWEEN :period_start AND :period_end
+            ");
+            $reportsStmt->execute([
+                'period_start' => $liveStart,
+                'period_end' => $liveEnd
+            ]);
+            $allReports = $reportsStmt->fetchAll();
+            foreach ($allReports as $rep) {
+                $uid = $rep['user_id'];
+                if (!isset($reportsByUser[$uid])) {
+                    $reportsByUser[$uid] = [];
+                }
+                $reportsByUser[$uid][] = $rep;
+            }
         }
         
         // Fetch work start date settings overrides
@@ -3059,157 +3569,203 @@ function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = n
             $workStartDateOverrides[$uid] = $ov['setting_value'];
         }
         
-        // Get KPI settings for bulk calculations (and pre-cache global keys)
-        $maxOntimeHour = (int)getSetting($pdo, 'max_ontime_hour', '8');
+        // Get KPI settings for bulk calculations
         getSetting($pdo, 'kpi_late_penalty_per_minute', '1');
         getSetting($pdo, 'kpi_izin_sakit_score', '85');
         getSetting($pdo, 'kpi_alpha_score', '0');
         getSetting($pdo, 'kpi_overtime_bonus', '5');
         
-        // Fetch all attendance records in one query and group them by user_id
-        $attendanceStmt = $pdo->prepare("
-            SELECT 
-                user_id,
-                DATE(jam_masuk_iso) as attendance_date,
-                jam_masuk_iso,
-                jam_masuk,
-                status,
-                ket,
-                CASE 
-                    WHEN status = 'terlambat' AND jam_masuk IS NOT NULL THEN 
-                        GREATEST(0, 
-                            FLOOR(
-                                TIMESTAMPDIFF(MINUTE, 
-                                    CONCAT('2000-01-01 ', LPAD(:max_ontime_hour1, 2, '0'), ':00:00'),
-                                    CONCAT('2000-01-01 ', 
-                                        CASE 
-                                            WHEN LENGTH(jam_masuk) = 5 THEN CONCAT(jam_masuk, ':00')
-                                            ELSE jam_masuk
-                                        END
-                                    )
-                                )
-                            )
-                        )
-                    WHEN status = 'terlambat' AND jam_masuk IS NULL THEN 
-                        GREATEST(0, TIMESTAMPDIFF(MINUTE, 
-                            CONCAT(DATE(jam_masuk_iso), ' ', LPAD(:max_ontime_hour2, 2, '0'), ':00:00'), 
-                            jam_masuk_iso
-                        ))
-                    ELSE 0 
-                END as late_minutes
-            FROM attendance 
-            WHERE jam_masuk_iso IS NOT NULL 
-            AND DATE(jam_masuk_iso) BETWEEN DATE(:period_start) AND DATE(:period_end)
-            AND ket IN ('wfo', 'wfa', 'overtime')
-            ORDER BY jam_masuk_iso ASC
-        ");
-        $attendanceStmt->execute([
-            'period_start' => $periodStart, 
-            'period_end' => $periodEnd,
-            'max_ontime_hour1' => $maxOntimeHour,
-            'max_ontime_hour2' => $maxOntimeHour
-        ]);
-        $allAttendance = $attendanceStmt->fetchAll();
-        $attendanceByUser = [];
-        foreach ($allAttendance as $att) {
-            $uid = $att['user_id'];
-            if (!isset($attendanceByUser[$uid])) {
-                $attendanceByUser[$uid] = [];
-            }
-            $attendanceByUser[$uid][] = $att;
-        }
-        
-        // Fetch all attendance notes in one query and group them by user_id
-        $notesStmt = $pdo->prepare("
-            SELECT user_id, date as izin_date, type as status
-            FROM attendance_notes 
-            WHERE type IN ('izin', 'sakit')
-            AND date BETWEEN :period_start AND :period_end
-            ORDER BY date
-        ");
-        $notesStmt->execute([
-            'period_start' => $periodStart,
-            'period_end' => $periodEnd
-        ]);
-        $allNotes = $notesStmt->fetchAll();
-        $notesByUser = [];
-        foreach ($allNotes as $note) {
-            $uid = $note['user_id'];
-            if (!isset($notesByUser[$uid])) {
-                $notesByUser[$uid] = [];
-            }
-            $notesByUser[$uid][] = $note;
-        }
-        
-        // Fetch all overtime records in one query and group them by user_id
-        $overtimeStmt = $pdo->prepare("
-            SELECT user_id, DATE(jam_masuk_iso) as overtime_date, status, jam_masuk_iso, jam_masuk
-            FROM attendance 
-            WHERE DATE(jam_masuk_iso) BETWEEN :period_start AND :period_end
-            AND ket = 'overtime'
-            ORDER BY jam_masuk_iso ASC
-        ");
-        $overtimeStmt->execute([
-            'period_start' => $periodStart,
-            'period_end' => $periodEnd
-        ]);
-        $allOvertime = $overtimeStmt->fetchAll();
-        $overtimeByUser = [];
-        foreach ($allOvertime as $ot) {
-            $uid = $ot['user_id'];
-            if (!isset($overtimeByUser[$uid])) {
-                $overtimeByUser[$uid] = [];
-            }
-            $overtimeByUser[$uid][] = $ot;
-        }
-        
-        // Fetch all daily reports in one query and group them by user_id
-        $reportsStmt = $pdo->prepare("
-            SELECT user_id, report_date 
-            FROM daily_reports 
-            WHERE report_date BETWEEN :period_start AND :period_end
-        ");
-        $reportsStmt->execute([
-            'period_start' => $periodStart,
-            'period_end' => $periodEnd
-        ]);
-        $allReports = $reportsStmt->fetchAll();
-        $reportsByUser = [];
-        foreach ($allReports as $rep) {
-            $uid = $rep['user_id'];
-            if (!isset($reportsByUser[$uid])) {
-                $reportsByUser[$uid] = [];
-            }
-            $reportsByUser[$uid][] = $rep;
-        }
-        
         $kpiData = [];
         foreach ($employees as $employee) {
             $uid = $employee['id'];
-            $empSchedule = $schedulesByUser[$uid] ?? [];
-            $empAttendance = $attendanceByUser[$uid] ?? [];
-            $empNotes = $notesByUser[$uid] ?? [];
-            $empOvertime = $overtimeByUser[$uid] ?? [];
-            $empReports = $reportsByUser[$uid] ?? [];
             $empOverride = isset($workStartDateOverrides[$uid]) ? $workStartDateOverrides[$uid] : false;
             
-            $kpi = calculateKPIForEmployee(
-                $pdo, 
-                $uid, 
-                $periodStart, 
-                $periodEnd, 
-                $preFetchedManualHolidays, 
-                $empSchedule,
-                $employee,
-                $empAttendance,
-                $empNotes,
-                $empOvertime,
-                $empReports,
-                $empOverride
-            );
-            if ($kpi) {
-                $kpiData[] = $kpi;
+            $aggregated = [
+                'total_working_days' => 0,
+                'actual_working_days' => 0,
+                'ontime_count' => 0,
+                'wfo_count' => 0,
+                'wfa_count' => 0,
+                'late_count' => 0,
+                'izin_sakit_count' => 0,
+                'alpha_count' => 0,
+                'overtime_count' => 0,
+                'missing_daily_reports_count' => 0,
+                'total_late_minutes' => 0,
+                'kpi_points' => 0.00,
+                'days_with_data' => 0
+            ];
+            
+            // Add cached records
+            $cachedRows = $cachedDataByUser[$uid] ?? [];
+            foreach ($cachedRows as $row) {
+                $aggregated['total_working_days'] += $row['total_working_days'];
+                $aggregated['actual_working_days'] += $row['actual_working_days'];
+                $aggregated['ontime_count'] += $row['ontime_count'];
+                $aggregated['wfo_count'] += $row['wfo_count'];
+                $aggregated['wfa_count'] += $row['wfa_count'];
+                $aggregated['late_count'] += $row['late_count'];
+                $aggregated['izin_sakit_count'] += $row['izin_sakit_count'];
+                $aggregated['alpha_count'] += $row['alpha_count'];
+                $aggregated['overtime_count'] += $row['overtime_count'];
+                $aggregated['missing_daily_reports_count'] += $row['missing_daily_reports_count'];
+                $aggregated['total_late_minutes'] += $row['total_late_minutes'];
+                $aggregated['kpi_points'] += (float)$row['kpi_points'];
+                $aggregated['days_with_data'] += $row['days_with_data'];
             }
+            
+            $cachedMonthsFound = [];
+            foreach ($cachedRows as $row) {
+                $cachedMonthsFound[$row['year'] . '-' . $row['month']] = true;
+            }
+            
+            // Loop through all months and process live/missing months
+            $iter = new DateTime($periodStart);
+            $iter->modify('first day of this month');
+            while ($iter <= $endDateTime) {
+                $mYear = (int)$iter->format('Y');
+                $mMonth = (int)$iter->format('n');
+                $mYearMonthStr = $iter->format('Y-m');
+                
+                $mStart = max($periodStart, $iter->format('Y-m-01'));
+                $mEnd = min($periodEnd, $iter->format('Y-m-t'));
+                
+                $isFullMonth = ($mStart === $iter->format('Y-m-01') && $mEnd === $iter->format('Y-m-t'));
+                $isPastMonth = ($mYearMonthStr < $currentYearMonth);
+                
+                $isCacheable = ($isFullMonth && $isPastMonth);
+                $hasCache = isset($cachedMonthsFound[$mYear . '-' . $mMonth]);
+                
+                if ($isCacheable && $hasCache) {
+                    // Already processed
+                } else {
+                    $raw = null;
+                    if ($isCacheable && !$hasCache) {
+                        // Missing from cache, compute raw for full month and write to cache
+                        $raw = calculateKPIForEmployeeRaw(
+                            $pdo, $uid, $mStart, $mEnd, 
+                            null, null, $employee, null, null, null, null, $empOverride
+                        );
+                        if ($raw) {
+                            try {
+                                $ins = $pdo->prepare("
+                                    INSERT INTO kpi_monthly_cache (
+                                        user_id, year, month, ontime_count, wfo_count, wfa_count, 
+                                        late_count, izin_sakit_count, alpha_count, overtime_count, 
+                                        missing_daily_reports_count, total_late_minutes, total_working_days, 
+                                        actual_working_days, kpi_points, days_with_data
+                                    ) VALUES (
+                                        :user_id, :year, :month, :ontime_count, :wfo_count, :wfa_count, 
+                                        :late_count, :izin_sakit_count, :alpha_count, :overtime_count, 
+                                        :missing_daily_reports_count, :total_late_minutes, :total_working_days, 
+                                        :actual_working_days, :kpi_points, :days_with_data
+                                    ) ON DUPLICATE KEY UPDATE 
+                                        ontime_count = VALUES(ontime_count),
+                                        wfo_count = VALUES(wfo_count),
+                                        wfa_count = VALUES(wfa_count),
+                                        late_count = VALUES(late_count),
+                                        izin_sakit_count = VALUES(izin_sakit_count),
+                                        alpha_count = VALUES(alpha_count),
+                                        overtime_count = VALUES(overtime_count),
+                                        missing_daily_reports_count = VALUES(missing_daily_reports_count),
+                                        total_late_minutes = VALUES(total_late_minutes),
+                                        total_working_days = VALUES(total_working_days),
+                                        actual_working_days = VALUES(actual_working_days),
+                                        kpi_points = VALUES(kpi_points),
+                                        days_with_data = VALUES(days_with_data)
+                                ");
+                                $ins->execute([
+                                    ':user_id' => $uid,
+                                    ':year' => $mYear,
+                                    ':month' => $mMonth,
+                                    ':ontime_count' => $raw['ontime_count'],
+                                    ':wfo_count' => $raw['wfo_count'],
+                                    ':wfa_count' => $raw['wfa_count'],
+                                    ':late_count' => $raw['late_count'],
+                                    ':izin_sakit_count' => $raw['izin_sakit_count'],
+                                    ':alpha_count' => $raw['alpha_count'],
+                                    ':overtime_count' => $raw['overtime_count'],
+                                    ':missing_daily_reports_count' => $raw['missing_daily_reports_count'],
+                                    ':total_late_minutes' => $raw['total_late_minutes'],
+                                    ':total_working_days' => $raw['total_working_days'],
+                                    ':actual_working_days' => $raw['actual_working_days'],
+                                    ':kpi_points' => $raw['kpi_points'] ?? 0.00,
+                                    ':days_with_data' => $raw['days_with_data'] ?? 0
+                                ]);
+                            } catch (Exception $e) {
+                                error_log("Failed to write to KPI cache in bulk: " . $e->getMessage());
+                            }
+                        }
+                    } else {
+                        // Current ongoing month or partial range: Calculate from pre-fetched live records
+                        $empSchedule = $schedulesByUser[$uid] ?? [];
+                        $empAttendance = filterLiveRecords($attendanceByUser[$uid] ?? [], $mStart, $mEnd);
+                        $empNotes = filterLiveRecords($notesByUser[$uid] ?? [], $mStart, $mEnd, 'izin_date');
+                        $empOvertime = filterLiveRecords($overtimeByUser[$uid] ?? [], $mStart, $mEnd, 'overtime_date');
+                        $empReports = filterLiveRecords($reportsByUser[$uid] ?? [], $mStart, $mEnd, 'report_date');
+                        
+                        $raw = calculateKPIForEmployeeRaw(
+                            $pdo, $uid, $mStart, $mEnd, 
+                            $preFetchedManualHolidays, $empSchedule, $employee, 
+                            $empAttendance, $empNotes, $empOvertime, $empReports, $empOverride
+                        );
+                    }
+                    
+                    if ($raw) {
+                        $aggregated['total_working_days'] += $raw['total_working_days'];
+                        $aggregated['actual_working_days'] += $raw['actual_working_days'];
+                        $aggregated['ontime_count'] += $raw['ontime_count'];
+                        $aggregated['wfo_count'] += $raw['wfo_count'];
+                        $aggregated['wfa_count'] += $raw['wfa_count'];
+                        $aggregated['late_count'] += $raw['late_count'];
+                        $aggregated['izin_sakit_count'] += $raw['izin_sakit_count'];
+                        $aggregated['alpha_count'] += $raw['alpha_count'];
+                        $aggregated['overtime_count'] += $raw['overtime_count'];
+                        $aggregated['missing_daily_reports_count'] += $raw['missing_daily_reports_count'];
+                        $aggregated['total_late_minutes'] += $raw['total_late_minutes'];
+                        $aggregated['kpi_points'] += ($raw['kpi_points'] ?? 0.00);
+                        $aggregated['days_with_data'] += ($raw['days_with_data'] ?? 0);
+                    }
+                }
+                $iter->modify('+1 month');
+            }
+            
+            // Calculate final score
+            $finalScore = 0.00;
+            if ($aggregated['days_with_data'] > 0) {
+                $finalScore = $aggregated['kpi_points'] / $aggregated['days_with_data'];
+            }
+            $finalScore = max(0, min(100, $finalScore));
+            
+            $status = 'Very Poor';
+            if ($finalScore >= 90) $status = 'Excellent';
+            elseif ($finalScore >= 80) $status = 'Good';
+            elseif ($finalScore >= 70) $status = 'Fair';
+            elseif ($finalScore >= 60) $status = 'Poor';
+            
+            $kpiData[] = [
+                'user_id' => $uid,
+                'nama' => $employee['nama'],
+                'nim' => $employee['nim'] ?? '-',
+                'startup' => $employee['startup'] ?? '-',
+                'foto_base64' => $employee['foto_base64'] ?? '',
+                'total_working_days' => $aggregated['total_working_days'],
+                'actual_working_days' => $aggregated['actual_working_days'],
+                'ontime_count' => $aggregated['ontime_count'],
+                'wfo_count' => $aggregated['wfo_count'],
+                'wfa_count' => $aggregated['wfa_count'],
+                'late_count' => $aggregated['late_count'],
+                'izin_sakit_count' => $aggregated['izin_sakit_count'],
+                'alpha_count' => $aggregated['alpha_count'],
+                'overtime_count' => $aggregated['overtime_count'],
+                'missing_daily_reports_count' => $aggregated['missing_daily_reports_count'],
+                'total_late_minutes' => $aggregated['total_late_minutes'],
+                'kpi_score' => round($finalScore, 2),
+                'status' => $status,
+                'period_start' => $periodStart,
+                'period_end' => $periodEnd,
+                'employee_registration_date' => $employee['created_at']
+            ];
         }
         
         // Sort by KPI score descending

@@ -1068,6 +1068,40 @@ if (isset($_REQUEST['ajax'])) {
             $filterType = $_REQUEST['filter_type'] ?? '';
             $isAdminDashboard = isAdmin() && $filterType !== '';
             
+            // Support force manual cache rebuild
+            $forceRefresh = isset($_REQUEST['force_refresh']) && $_REQUEST['force_refresh'] === '1';
+            if ($forceRefresh) {
+                if ($isAdminDashboard) {
+                    if ($filterType === 'monthly') {
+                        $month = (int)($_REQUEST['month'] ?? date('n'));
+                        $year = (int)($_REQUEST['year'] ?? date('Y'));
+                        $stmt = $pdo->prepare("DELETE FROM kpi_monthly_cache WHERE year = :year AND month = :month");
+                        $stmt->execute([':year' => $year, ':month' => $month]);
+                    } else {
+                        clearAllKpiCache($pdo);
+                    }
+                } else {
+                    $userId = isAdmin() ? (int)($_REQUEST['user_id'] ?? 0) : (int)$_SESSION['user']['id'];
+                    if (!$userId) $userId = (int)$_SESSION['user']['id'];
+                    $periodStart = $_REQUEST['period_start'] ?? date('Y-m-01');
+                    $periodEnd = $_REQUEST['period_end'] ?? date('Y-m-t');
+                    
+                    $startYear = (int)date('Y', strtotime($periodStart));
+                    $startMonth = (int)date('m', strtotime($periodStart));
+                    $endYear = (int)date('Y', strtotime($periodEnd));
+                    $endMonth = (int)date('m', strtotime($periodEnd));
+                    
+                    $stmt = $pdo->prepare("DELETE FROM kpi_monthly_cache WHERE user_id = :user_id AND ((year > :sy OR (year = :sy AND month >= :sm)) AND (year < :ey OR (year = :ey AND month <= :em)))");
+                    $stmt->execute([
+                        ':user_id' => $userId,
+                        ':sy' => $startYear,
+                        ':sm' => $startMonth,
+                        ':ey' => $endYear,
+                        ':em' => $endMonth
+                    ]);
+                }
+            }
+            
             if ($isAdminDashboard) {
                 // Admin dashboard - get all KPI data with optional monthly filter
                 $customPeriodStart = null;
@@ -1085,7 +1119,8 @@ if (isset($_REQUEST['ajax'])) {
                     error_log("get_kpi_data - Period filter: $customPeriodStart to $customPeriodEnd");
                 }
                 
-                $kpiData = getAllKPIData($pdo, $customPeriodStart, $customPeriodEnd);
+                $includePhotos = isset($_REQUEST['include_photos']) && $_REQUEST['include_photos'] === '1';
+                $kpiData = getAllKPIData($pdo, $customPeriodStart, $customPeriodEnd, $includePhotos);
                 error_log("get_kpi_data - Admin dashboard, returning all KPI data");
                 jsonResponse(['ok' => true, 'data' => $kpiData]);
             } else {
@@ -1692,6 +1727,9 @@ if (isset($_REQUEST['ajax'])) {
                 $ins = $pdo->prepare("INSERT INTO attendance (user_id, jam_masuk, jam_masuk_iso, ekspresi_masuk, foto_masuk, landmark_masuk, lokasi_masuk, lat_masuk, lng_masuk, status, ket, alasan_wfa, alasan_overtime, lokasi_overtime) VALUES (:uid, :jam, :iso, :exp, :screenshot, :landmark, :lokasi, :lat, :lng, :status, :ket, :alasan, :alasan_ot, :lokasi_ot)");
                 $ins->execute([':uid' => $u['id'], ':jam' => $jamSekarang, ':iso' => $iso, ':exp' => $ekspresi, ':screenshot' => $screenshot, ':landmark' => $landmark, ':lokasi' => $lokasi, ':lat' => $lat, ':lng' => $lng, ':status' => $status, ':ket' => $ketVal, ':alasan' => $alasanWfa, ':alasan_ot' => null, ':lokasi_ot' => null]);
                 
+                // Fallback cache clear
+                clearKpiCache($pdo, $u['id'], $today);
+                
                 // OPTIMIZED: Backup trigger removed - happens on schedule
                 // triggerDatabaseBackup();
                 
@@ -1799,6 +1837,9 @@ if (isset($_REQUEST['ajax'])) {
                 $upd = $pdo->prepare("UPDATE attendance SET jam_pulang=:jam, jam_pulang_iso=:iso, ekspresi_pulang=:exp, foto_pulang=:screenshot, landmark_pulang=:landmark, lokasi_pulang=:lokasi, lat_pulang=:lat, lng_pulang=:lng, alasan_pulang_awal=:alasan, alasan_lokasi_berbeda=:diff_loc WHERE id=:id");
                 $upd->execute([':jam' => $jamSekarang, ':iso' => $iso, ':exp' => $ekspresi, ':screenshot' => $screenshot, ':landmark' => $landmark, ':lokasi' => $lokasi, ':lat' => $lat, ':lng' => $lng, ':alasan' => $alasanPulangAwal, ':diff_loc' => $diffLocationReason, ':id' => $todayRow['id']]);
                 
+                // Fallback cache clear
+                clearKpiCache($pdo, $u['id'], $today);
+                
                 // Trigger backup setelah presensi pulang
                 triggerDatabaseBackup();
                 $jamPulangFormat = substr($jamSekarang, 0, 5); // Ambil hanya jam:menit
@@ -1829,6 +1870,7 @@ if (isset($_REQUEST['ajax'])) {
                     ':user_id' => $note['user_id'],
                     ':date' => $note['date']
                 ]);
+                clearKpiCache($pdo, $note['user_id'], $note['date']);
             }
             
             $pdo->prepare("DELETE FROM attendance_notes WHERE id=:id")->execute([':id' => $actualId]);
@@ -1847,6 +1889,7 @@ if (isset($_REQUEST['ajax'])) {
                     ':user_id' => $attendance['user_id'],
                     ':date' => $attendance['report_date']
                 ]);
+                clearKpiCache($pdo, $attendance['user_id'], $attendance['report_date']);
             }
             
             $pdo->prepare("DELETE FROM attendance WHERE id=:id")->execute([':id' => $actualId]);
@@ -2461,7 +2504,12 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
                         ':keterangan' => $alasan ?: 'Tidak ada keterangan',
                         ':bukti' => null
                     ]);
-                    if ($result) $successCount++; else $errorCount++;
+                    if ($result) {
+                        $successCount++;
+                        clearKpiCache($pdo, $user_id, $date);
+                    } else {
+                        $errorCount++;
+                    }
                 } else {
                     $sql = "INSERT INTO attendance (user_id, jam_masuk, jam_masuk_iso, jam_pulang, jam_pulang_iso, status, ket, alasan_wfa, alasan_overtime, lokasi_overtime, created_at) VALUES (:u, :jm, :jmiso, :jp, :jpiso, :s, :ket, :alasan_wfa, :alasan_ot, :lokasi_ot, NOW())";
                     $ins = $pdo->prepare($sql);
@@ -2477,7 +2525,12 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
                         ':alasan_ot' => ($type === 'overtime' ? $alasan : null),
                         ':lokasi_ot' => ($type === 'overtime' ? $lokasi : null)
                     ]);
-                    if ($result) $successCount++; else $errorCount++;
+                    if ($result) {
+                        $successCount++;
+                        clearKpiCache($pdo, $user_id, $date);
+                    } else {
+                        $errorCount++;
+                    }
                 }
             } catch (Exception $e) {
                 error_log("Bulk absence error for user $user_id: " . $e->getMessage());
@@ -2655,6 +2708,10 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
             $sql="UPDATE attendance SET ".implode(',', $set)." WHERE id=:id";
             $pdo->prepare($sql)->execute($params);
             error_log("Admin update attendance - Normal update completed for ID: $id");
+        }
+        
+        if ($currentRecord) {
+            clearKpiCache($pdo, $currentRecord['user_id'], $currentRecord['attendance_date']);
         }
         
         // Trigger backup setelah update attendance
@@ -4351,6 +4408,10 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
             $upd->execute([':s' => $status, ':n' => $note, ':id' => $id]);
 
             $pdo->commit();
+            
+            if ($status === 'approved' || $status === 'solved') {
+                clearKpiCache($pdo, $req['user_id'], $req['tanggal']);
+            }
             $msg = 'Request berhasil ';
             if ($status === 'solved') $msg .= 'diselesaikan';
             elseif ($status === 'approved') $msg .= 'disetujui';

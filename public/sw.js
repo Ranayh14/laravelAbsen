@@ -45,12 +45,17 @@ self.addEventListener('fetch', event => {
         return; 
     }
 
+    const url = new URL(event.request.url);
+    
+    // Only intercept same-origin requests to prevent intercepting third-party scripts (e.g. Cloudflare Analytics, CDNs)
+    if (url.origin !== self.location.origin) {
+        return;
+    }
+
     // Skip navigation/redirect requests to let the browser handle redirects natively
     if (event.request.mode === 'navigate' || event.request.redirect === 'manual') {
         return;
     }
-
-    const url = new URL(event.request.url);
     
     // Cache-first strategy for static assets and models
     const isModel = url.pathname.includes('face-api-models') || url.pathname.includes('face-models');

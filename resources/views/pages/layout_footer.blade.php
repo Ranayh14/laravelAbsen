@@ -4913,7 +4913,7 @@ document.addEventListener('click', (e) => {
         const empty = qs('#kpi-empty');
         if (loading) loading.classList.remove('hidden');
         if (empty) empty.classList.add('hidden');
-        loadKPIData();
+        loadKPIData(true);
         return;
     }
     
@@ -10364,9 +10364,9 @@ function renderAttendanceTrendChart(trendData) {
 let kpiGlobalData = null;
 let kpiOverviewChart = null;
 
-async function loadKPIData() {
+async function loadKPIData(forceRefresh = false) {
     try {
-        console.log('Loading KPI data...');
+        console.log('Loading KPI data (forceRefresh = ' + forceRefresh + ')...');
         
         // Get filter parameters
         const filterType = kpiFilterType ? kpiFilterType.value : 'period';
@@ -10385,7 +10385,11 @@ async function loadKPIData() {
             console.log('KPI Filter: Period mode');
         }
         
-        const result = await api('?ajax=get_kpi_data', Object.fromEntries(params), { suppressModal: true, cache: true });
+        if (forceRefresh) {
+            params.append('force_refresh', '1');
+        }
+        
+        const result = await api('?ajax=get_kpi_data', Object.fromEntries(params), { suppressModal: true, cache: !forceRefresh });
         
         console.log('KPI response:', result);
         
@@ -10564,11 +10568,41 @@ async function exportKPIPDF() {
         return;
     }
     
+    showNotif('Sedang memuat data foto pegawai...', true);
+    
+    let employees = [];
+    try {
+        // Build query parameters based on current filter state
+        const filterType = kpiFilterType ? kpiFilterType.value : 'period';
+        const month = kpiFilterMonth ? kpiFilterMonth.value : '';
+        const year = kpiFilterYear ? kpiFilterYear.value : '';
+        
+        const params = new URLSearchParams();
+        if (filterType === 'monthly' && month && year) {
+            params.append('filter_type', 'monthly');
+            params.append('month', month);
+            params.append('year', year);
+        } else {
+            params.append('filter_type', 'period');
+        }
+        params.append('include_photos', '1'); // Request photos for PDF export
+        
+        const result = await api('?ajax=get_kpi_data', Object.fromEntries(params), { suppressModal: true });
+        if (!result.ok || !result.data || !result.data.kpi_data) {
+            showNotif('Gagal memuat foto pegawai untuk PDF. Menggunakan data tanpa foto...', false);
+            employees = kpiGlobalData.kpi_data;
+        } else {
+            employees = result.data.kpi_data;
+        }
+    } catch (e) {
+        console.error('Error fetching photos for PDF:', e);
+        employees = kpiGlobalData.kpi_data;
+    }
+    
     showNotif('Sedang men-generate PDF...', true);
     
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF('p', 'mm', 'a4'); // Portrait, mm, A4
-    const employees = kpiGlobalData.kpi_data;
     
     // Helper to add chart to PDF
     const tempCanvas = document.createElement('canvas');
@@ -10954,6 +10988,10 @@ function initKPIFilterOptions() {
         }
     }
     
+    const currentDateObj = new Date();
+    const currentMonthNum = currentDateObj.getMonth() + 1; // 1-12
+    const currentYearNum = currentDateObj.getFullYear();
+    
     // Populate months
     const months = [
         'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -10965,18 +11003,27 @@ function initKPIFilterOptions() {
         const option = document.createElement('option');
         option.value = index + 1;
         option.textContent = month;
+        if (index + 1 === currentMonthNum) {
+            option.selected = true;
+        }
         kpiFilterMonth.appendChild(option);
     });
     
     // Populate years (current year and previous 2 years)
-    const currentYear = new Date().getFullYear();
     kpiFilterYear.innerHTML = '<option value="">Pilih Tahun</option>';
-    for (let year = currentYear; year >= currentYear - 2; year--) {
+    for (let year = currentYearNum; year >= currentYearNum - 2; year--) {
         const option = document.createElement('option');
         option.value = year;
         option.textContent = year;
+        if (year === currentYearNum) {
+            option.selected = true;
+        }
         kpiFilterYear.appendChild(option);
     }
+    
+    // If values are still empty, force set them
+    if (!kpiFilterMonth.value) kpiFilterMonth.value = currentMonthNum;
+    if (!kpiFilterYear.value) kpiFilterYear.value = currentYearNum;
     
     // ===== ATTACH EVENT LISTENERS HERE (after elements are confirmed to exist) =====
     

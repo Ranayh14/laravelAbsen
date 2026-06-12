@@ -94,8 +94,8 @@
                 <div class="w-px h-8 bg-gray-200 mx-2 hidden md:block"></div>
 
                 <select id="kpi-filter-type" class="bg-gray-50 border-none rounded-xl px-4 py-2.5 text-sm font-bold text-gray-700 outline-none ring-1 ring-gray-200 focus:ring-2 focus:ring-indigo-500 transition-all cursor-pointer">
-                    <option value="period" selected>Seluruh Periode</option>
-                    <option value="monthly">Filter Bulanan</option>
+                    <option value="period">Seluruh Periode</option>
+                    <option value="monthly" selected>Filter Bulanan</option>
                 </select>
                 <div id="kpi-monthly-controls" class="flex items-center gap-2 hidden">
                     <select id="kpi-filter-month" class="bg-gray-50 border-none rounded-xl px-4 py-2.5 text-sm font-bold text-gray-700 outline-none ring-1 ring-gray-200 focus:ring-2 focus:ring-indigo-500 transition-all cursor-pointer">
