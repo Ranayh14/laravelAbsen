@@ -1253,10 +1253,9 @@ if (isset($_REQUEST['ajax'])) {
                 $dayOfWeek = (int)$now->format('N'); // 1=Monday, 7=Sunday
                 $isWeekend = $dayOfWeek >= 6; // Saturday or Sunday
                 $isManualHolidayDate = isManualHoliday($pdo, $today);
-                $isNationalHolidayDate = isNationalHoliday($today);
                 
                 // If NOT a working day (weekend or holiday), treat as overtime
-                if (!$isWorkingDay || $isWeekend || $isManualHolidayDate || $isNationalHolidayDate) {
+                if (!$isWorkingDay || $isWeekend || $isManualHolidayDate) {
                     // This is overtime - require overtime reason and location
                     $lat = isset($_POST['lat']) ? (float)$_POST['lat'] : null;
                     $lng = isset($_POST['lng']) ? (float)$_POST['lng'] : null;
@@ -3881,7 +3880,7 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
             $isManualHolidayDate = isset($manualHolidayDates[$dstr]);
             
             // Check if date is national holiday
-            $isNationalHolidayDate = isNationalHoliday($dstr);
+            $isNationalHolidayDate = $isManualHolidayDate;
             
             // Check if date is weekend
             $isWeekend = $dow >= 6; // Saturday = 6, Sunday = 7

@@ -3073,12 +3073,15 @@ async function loadStartupOptions() {
 
 // Laporan
 async function renderLaporan(){
-    const j = await api('?ajax=get_attendance', {}, { cache: false });
+    const tglMulai = qs('#filter-tanggal-mulai')?.value || '';
+    const tglSelesai = qs('#filter-tanggal-selesai')?.value || '';
+    let url = '?ajax=get_attendance&limit=1000';
+    if (tglMulai) url += '&start_date=' + tglMulai;
+    if (tglSelesai) url += '&end_date=' + tglSelesai;
+    const j = await api(url, {}, { cache: false });
     const list = (j.data||[]);
     const term = (qs('#search-laporan')?.value||'').toLowerCase();
     const startupFilter = qs('#filter-startup')?.value || '';
-    const tglMulai = qs('#filter-tanggal-mulai')?.value || '';
-    const tglSelesai = qs('#filter-tanggal-selesai')?.value || '';
     const sortBy = qs('#sort-presensi')?.value || 'tanggal-desc';
     
     // NEW: Get new filter values

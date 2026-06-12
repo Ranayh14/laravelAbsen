@@ -445,6 +445,9 @@ function ensureSchema(PDO $pdo): void {
                 actual_working_days INT NOT NULL DEFAULT 0,
                 kpi_points DECIMAL(10,2) NOT NULL DEFAULT 0.00,
                 days_with_data INT NOT NULL DEFAULT 0,
+                wfa_dates TEXT NULL,
+                izin_sakit_dates TEXT NULL,
+                alpha_dates TEXT NULL,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 UNIQUE KEY uniq_user_year_month (user_id, year, month),
                 CONSTRAINT fk_kmc_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -453,6 +456,17 @@ function ensureSchema(PDO $pdo): void {
     } catch (PDOException $e) {
         error_log("Failed to create kpi_monthly_cache table: " . $e->getMessage());
     }
+
+    // Add columns to kpi_monthly_cache if they don't exist (migration for existing databases)
+    try {
+        $pdo->exec("ALTER TABLE kpi_monthly_cache ADD COLUMN wfa_dates TEXT NULL AFTER days_with_data");
+    } catch (PDOException $e) {}
+    try {
+        $pdo->exec("ALTER TABLE kpi_monthly_cache ADD COLUMN izin_sakit_dates TEXT NULL AFTER wfa_dates");
+    } catch (PDOException $e) {}
+    try {
+        $pdo->exec("ALTER TABLE kpi_monthly_cache ADD COLUMN alpha_dates TEXT NULL AFTER izin_sakit_dates");
+    } catch (PDOException $e) {}
 
     // Create database triggers for automatic cache invalidation
     $triggers = [
@@ -1298,6 +1312,25 @@ try {
         }
     } catch (Exception $e) {
         error_log("Failed to check or auto-initialize kpi_monthly_cache: " . $e->getMessage());
+    }
+    
+    // Seed national holidays to manual_holidays table if not already seeded
+    try {
+        seedNationalHolidays($pdo);
+    } catch (Exception $e) {
+        error_log("Failed to seed national holidays: " . $e->getMessage());
+    }
+    
+    // Clear KPI cache once to migrate date lists
+    try {
+        $flag = getSetting($pdo, 'kpi_cache_dates_cleared_v1');
+        if ($flag !== '1') {
+            clearAllKpiCache($pdo);
+            $setFlag = $pdo->prepare("INSERT INTO settings (setting_key, setting_value, description) VALUES ('kpi_cache_dates_cleared_v1', '1', 'Flag indicating cache cleared for date columns migration') ON DUPLICATE KEY UPDATE setting_value = '1'");
+            $setFlag->execute();
+        }
+    } catch (Exception $e) {
+        error_log("Failed to run cache migration: " . $e->getMessage());
     }
     
     // PERFORMANCE: Only run schema verification if explicitly requested
@@ -2527,6 +2560,9 @@ function calculateKPIForEmployeeRaw(
         $totalWorkingDaysInPeriod = 0; // Count all working days in period for this employee
         $missingDailyReportsCount = 0; // Count days with attendance but no daily report
         $daysWithoutReport = []; // Store dates that need daily report penalty
+        $wfaDatesList = [];
+        $izinSakitDatesList = [];
+        $alphaDatesList = [];
         
         // Process each working day
         foreach ($workingDays as $dateStr) {
@@ -2571,6 +2607,7 @@ function calculateKPIForEmployeeRaw(
                             $wfoCount++;
                         } else if ($attendanceRecord['ket'] === 'wfa') {
                             $wfaCount++;
+                            $wfaDatesList[] = $dateStr;
                         }
                     } else {
                         $lateCount++;
@@ -2579,6 +2616,7 @@ function calculateKPIForEmployeeRaw(
                             $wfoCount++;
                         } else if ($attendanceRecord['ket'] === 'wfa') {
                             $wfaCount++;
+                            $wfaDatesList[] = $dateStr;
                         }
                         $lateMinutes = (int)$attendanceRecord['late_minutes'];
                         $totalLateMinutes += $lateMinutes;
@@ -2590,6 +2628,7 @@ function calculateKPIForEmployeeRaw(
                     // If this date is a manual holiday, do not penalize as alpha
                     if (!isset($preFetchedManualHolidays[$dateStr])) {
                         $alphaCount++;
+                        $alphaDatesList[] = $dateStr;
                     }
                 }
             }
@@ -2609,6 +2648,7 @@ function calculateKPIForEmployeeRaw(
                 $record['izin_date'] <= $periodEnd &&
                 $record['izin_date'] <= $currentDate) {
                 $directIzinSakitCount++;
+                $izinSakitDatesList[] = $record['izin_date'];
             }
         }
         
@@ -2616,6 +2656,13 @@ function calculateKPIForEmployeeRaw(
         if ($directIzinSakitCount != $izinSakitCount) {
             $izinSakitCount = $directIzinSakitCount;
         }
+        
+        $wfaDatesList = array_unique($wfaDatesList);
+        sort($wfaDatesList);
+        $izinSakitDatesList = array_unique($izinSakitDatesList);
+        sort($izinSakitDatesList);
+        $alphaDatesList = array_unique($alphaDatesList);
+        sort($alphaDatesList);
         
         // Calculate actual working days based on days with actual data
         // This should be the sum of all days with attendance records (ontime, late, alpha, izin/sakit)
@@ -2732,7 +2779,10 @@ function calculateKPIForEmployeeRaw(
             'status' => $status,
             'period_start' => $periodStart,
             'period_end' => $periodEnd,
-            'employee_registration_date' => $employeeRegDate
+            'employee_registration_date' => $employeeRegDate,
+            'wfa_dates' => implode(',', $wfaDatesList),
+            'izin_sakit_dates' => implode(',', $izinSakitDatesList),
+            'alpha_dates' => implode(',', $alphaDatesList)
         ];
         
     } catch (Exception $e) {
@@ -2842,6 +2892,10 @@ function calculateKPIForEmployee(
         'days_with_data' => 0
     ];
     
+    $aggregatedWfaDates = [];
+    $aggregatedIzinSakitDates = [];
+    $aggregatedAlphaDates = [];
+    
     foreach ($months as $m) {
         $cachedRow = null;
         if ($m['cacheable']) {
@@ -2864,12 +2918,14 @@ function calculateKPIForEmployee(
                                 user_id, year, month, ontime_count, wfo_count, wfa_count, 
                                 late_count, izin_sakit_count, alpha_count, overtime_count, 
                                 missing_daily_reports_count, total_late_minutes, total_working_days, 
-                                actual_working_days, kpi_points, days_with_data
+                                actual_working_days, kpi_points, days_with_data,
+                                wfa_dates, izin_sakit_dates, alpha_dates
                             ) VALUES (
                                 :user_id, :year, :month, :ontime_count, :wfo_count, :wfa_count, 
                                 :late_count, :izin_sakit_count, :alpha_count, :overtime_count, 
                                 :missing_daily_reports_count, :total_late_minutes, :total_working_days, 
-                                :actual_working_days, :kpi_points, :days_with_data
+                                :actual_working_days, :kpi_points, :days_with_data,
+                                :wfa_dates, :izin_sakit_dates, :alpha_dates
                             ) ON DUPLICATE KEY UPDATE 
                                 ontime_count = VALUES(ontime_count),
                                 wfo_count = VALUES(wfo_count),
@@ -2883,7 +2939,10 @@ function calculateKPIForEmployee(
                                 total_working_days = VALUES(total_working_days),
                                 actual_working_days = VALUES(actual_working_days),
                                 kpi_points = VALUES(kpi_points),
-                                days_with_data = VALUES(days_with_data)
+                                days_with_data = VALUES(days_with_data),
+                                wfa_dates = VALUES(wfa_dates),
+                                izin_sakit_dates = VALUES(izin_sakit_dates),
+                                alpha_dates = VALUES(alpha_dates)
                         ");
                         $ins->execute([
                             ':user_id' => $userId,
@@ -2901,7 +2960,10 @@ function calculateKPIForEmployee(
                             ':total_working_days' => $raw['total_working_days'],
                             ':actual_working_days' => $raw['actual_working_days'],
                             ':kpi_points' => $raw['kpi_points'] ?? 0.00,
-                            ':days_with_data' => $raw['days_with_data'] ?? 0
+                            ':days_with_data' => $raw['days_with_data'] ?? 0,
+                            ':wfa_dates' => $raw['wfa_dates'] ?? '',
+                            ':izin_sakit_dates' => $raw['izin_sakit_dates'] ?? '',
+                            ':alpha_dates' => $raw['alpha_dates'] ?? ''
                         ]);
                     } catch (Exception $e) {
                         error_log("Failed to write to KPI cache: " . $e->getMessage());
@@ -2925,6 +2987,15 @@ function calculateKPIForEmployee(
             $aggregated['total_late_minutes'] += $cachedRow['total_late_minutes'];
             $aggregated['kpi_points'] += ($cachedRow['kpi_points'] ?? 0.00);
             $aggregated['days_with_data'] += ($cachedRow['days_with_data'] ?? 0);
+            if (!empty($cachedRow['wfa_dates'])) {
+                $aggregatedWfaDates = array_merge($aggregatedWfaDates, explode(',', $cachedRow['wfa_dates']));
+            }
+            if (!empty($cachedRow['izin_sakit_dates'])) {
+                $aggregatedIzinSakitDates = array_merge($aggregatedIzinSakitDates, explode(',', $cachedRow['izin_sakit_dates']));
+            }
+            if (!empty($cachedRow['alpha_dates'])) {
+                $aggregatedAlphaDates = array_merge($aggregatedAlphaDates, explode(',', $cachedRow['alpha_dates']));
+            }
         } else {
             // Calculate on the fly for non-cacheable range
             $raw = calculateKPIForEmployeeRaw(
@@ -2945,6 +3016,15 @@ function calculateKPIForEmployee(
                 $aggregated['total_late_minutes'] += $raw['total_late_minutes'];
                 $aggregated['kpi_points'] += ($raw['kpi_points'] ?? 0.00);
                 $aggregated['days_with_data'] += ($raw['days_with_data'] ?? 0);
+                if (!empty($raw['wfa_dates'])) {
+                    $aggregatedWfaDates = array_merge($aggregatedWfaDates, explode(',', $raw['wfa_dates']));
+                }
+                if (!empty($raw['izin_sakit_dates'])) {
+                    $aggregatedIzinSakitDates = array_merge($aggregatedIzinSakitDates, explode(',', $raw['izin_sakit_dates']));
+                }
+                if (!empty($raw['alpha_dates'])) {
+                    $aggregatedAlphaDates = array_merge($aggregatedAlphaDates, explode(',', $raw['alpha_dates']));
+                }
             }
         }
     }
@@ -2963,6 +3043,13 @@ function calculateKPIForEmployee(
     elseif ($finalScore >= 70) $status = 'Fair';
     elseif ($finalScore >= 60) $status = 'Poor';
     
+    $cleanDates = function($datesArray) {
+        $filtered = array_filter(array_map('trim', $datesArray));
+        $unique = array_unique($filtered);
+        sort($unique);
+        return implode(',', $unique);
+    };
+
     return [
         'user_id' => $userId,
         'nama' => $employee['nama'],
@@ -2984,7 +3071,10 @@ function calculateKPIForEmployee(
         'status' => $status,
         'period_start' => $periodStart,
         'period_end' => $periodEnd,
-        'employee_registration_date' => $employee['created_at']
+        'employee_registration_date' => $employee['created_at'],
+        'wfa_dates' => $cleanDates($aggregatedWfaDates),
+        'izin_sakit_dates' => $cleanDates($aggregatedIzinSakitDates),
+        'alpha_dates' => $cleanDates($aggregatedAlphaDates)
     ];
 }
 
@@ -3116,6 +3206,108 @@ function isNationalHoliday($date) {
     return isset($holidaysMap[$year][$date]);
 }
 
+// Function to seed national holidays to manual_holidays table
+function seedNationalHolidays(PDO $pdo) {
+    $seeded = getSetting($pdo, 'national_holidays_seeded');
+    if ($seeded === '1') {
+        return;
+    }
+    
+    $years = [2024, 2025, 2026];
+    $fixedHolidays = [
+        '01-01' => 'Tahun Baru',
+        '02-14' => 'Valentine Day',
+        '03-22' => 'Hari Raya Nyepi',
+        '04-18' => 'Wafat Isa Almasih',
+        '05-01' => 'Hari Buruh Internasional',
+        '05-09' => 'Kenaikan Isa Almasih',
+        '05-20' => 'Hari Kebangkitan Nasional',
+        '06-01' => 'Hari Lahir Pancasila',
+        '06-17' => 'Hari Raya Idul Adha',
+        '08-17' => 'Hari Kemerdekaan RI',
+        '09-16' => 'Maulid Nabi Muhammad SAW',
+        '10-02' => 'Hari Batik Nasional',
+        '11-10' => 'Hari Pahlawan',
+        '12-25' => 'Hari Raya Natal'
+    ];
+    
+    $islamic2024 = [
+        '2024-04-10' => 'Hari Raya Idul Fitri 1445 H',
+        '2024-04-11' => 'Hari Raya Idul Fitri 1445 H (Hari Kedua)',
+        '2024-06-16' => 'Hari Raya Idul Adha 1445 H',
+        '2024-07-07' => 'Tahun Baru Islam 1446 H',
+        '2024-09-15' => 'Maulid Nabi Muhammad SAW 1446 H'
+    ];
+    
+    $islamic2025 = [
+        '2025-03-30' => 'Hari Raya Idul Fitri 1446 H',
+        '2025-03-31' => 'Hari Raya Idul Fitri 1446 H (Hari Kedua)',
+        '2025-06-06' => 'Hari Raya Idul Adha 1446 H',
+        '2025-06-26' => 'Tahun Baru Islam 1447 H',
+        '2025-09-05' => 'Maulid Nabi Muhammad SAW 1447 H'
+    ];
+
+    $islamic2026 = [
+        '2026-03-20' => 'Hari Raya Idul Fitri 1447 H',
+        '2026-03-21' => 'Hari Raya Idul Fitri 1447 H (Hari Kedua)',
+        '2026-05-27' => 'Hari Raya Idul Adha 1447 H',
+        '2026-06-16' => 'Tahun Baru Islam 1448 H',
+        '2026-08-25' => 'Maulid Nabi Muhammad SAW 1448 H'
+    ];
+    
+    try {
+        $pdo->beginTransaction();
+        $stmt = $pdo->prepare("INSERT IGNORE INTO manual_holidays (date, name, created_by) VALUES (:date, :name, :created_by)");
+        
+        $adminIdStmt = $pdo->query("SELECT id FROM users WHERE role = 'admin' LIMIT 1");
+        $adminId = $adminIdStmt->fetchColumn() ?: null;
+        
+        foreach ($years as $year) {
+            foreach ($fixedHolidays as $datePart => $name) {
+                $stmt->execute([
+                    ':date' => "$year-$datePart",
+                    ':name' => $name,
+                    ':created_by' => $adminId
+                ]);
+            }
+        }
+        
+        foreach ($islamic2024 as $date => $name) {
+            $stmt->execute([
+                ':date' => $date,
+                ':name' => $name,
+                ':created_by' => $adminId
+            ]);
+        }
+        
+        foreach ($islamic2025 as $date => $name) {
+            $stmt->execute([
+                ':date' => $date,
+                ':name' => $name,
+                ':created_by' => $adminId
+            ]);
+        }
+
+        foreach ($islamic2026 as $date => $name) {
+            $stmt->execute([
+                ':date' => $date,
+                ':name' => $name,
+                ':created_by' => $adminId
+            ]);
+        }
+        
+        $setStmt = $pdo->prepare("INSERT INTO settings (setting_key, setting_value, description) VALUES ('national_holidays_seeded', '1', 'Flag indicating national holidays have been seeded to manual_holidays table') ON DUPLICATE KEY UPDATE setting_value = '1'");
+        $setStmt->execute();
+        
+        $pdo->commit();
+    } catch (Exception $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        error_log("Failed to seed national holidays: " . $e->getMessage());
+    }
+}
+
 // Manual holiday helpers
 function isManualHoliday(PDO $pdo, $date){
     try{
@@ -3169,7 +3361,7 @@ function isEmployeeWorkingDay(PDO $pdo, $userId, $date, $preFetchedSchedule = nu
     
     $schedule = $preFetchedSchedule !== null ? $preFetchedSchedule : getEmployeeWorkSchedule($pdo, $userId);
     
-    $isHoliday = isNationalHoliday($date) || ($preFetchedManualHolidays !== null ? isset($preFetchedManualHolidays[$date]) : isManualHoliday($pdo, $date));
+    $isHoliday = ($preFetchedManualHolidays !== null ? isset($preFetchedManualHolidays[$date]) : isManualHoliday($pdo, $date));
     
     // If no specific schedule found, use default (Monday-Friday)
     if (empty($schedule)) {
@@ -3208,7 +3400,7 @@ function getEmployeeWorkingDaysInPeriod(PDO $pdo, $userId, $startDate, $endDate,
         while ($current <= $end) {
             $dateStr = $current->format('Y-m-d');
             $dayNum = (int)$current->format('N');
-            $isHoliday = isNationalHoliday($dateStr) || ($preFetchedManualHolidays !== null ? isset($preFetchedManualHolidays[$dateStr]) : isManualHoliday($pdo, $dateStr));
+            $isHoliday = ($preFetchedManualHolidays !== null ? isset($preFetchedManualHolidays[$dateStr]) : isManualHoliday($pdo, $dateStr));
             
             $days[] = [
                 'date' => $dateStr,
@@ -3262,7 +3454,7 @@ function getWorkingDaysInPeriod($startDate, $endDate) {
         // Skip weekends (Saturday = 6, Sunday = 0)
         if ($dayOfWeek < 6) {
             // Check if it's not a national or manual holiday
-            if (!isNationalHoliday($dateStr) && !(isset($GLOBALS['pdo']) ? isManualHoliday($GLOBALS['pdo'], $dateStr) : false)) {
+            if (!(isset($GLOBALS['pdo']) ? isManualHoliday($GLOBALS['pdo'], $dateStr) : false)) {
                 $workingDays[] = clone $start;
             }
         }
@@ -3284,7 +3476,7 @@ function getWorkingDaysInMonth($year, $month) {
         // Skip weekends (Saturday = 6, Sunday = 0)
         if ($dayOfWeek < 6) {
             // Check if it's not a national or manual holiday
-            if (!isNationalHoliday($dateStr) && !(isset($GLOBALS['pdo']) ? isManualHoliday($GLOBALS['pdo'], $dateStr) : false)) {
+            if (!(isset($GLOBALS['pdo']) ? isManualHoliday($GLOBALS['pdo'], $dateStr) : false)) {
                 $workingDays++;
             }
         }
@@ -3309,7 +3501,7 @@ function getWorkingDaysInMonthUpToDate($year, $month, $day) {
         // Skip weekends (Saturday = 6, Sunday = 0)
         if ($dayOfWeek < 6) {
             // Check if it's not a national or manual holiday
-            if (!isNationalHoliday($dateStr) && !(isset($GLOBALS['pdo']) ? isManualHoliday($GLOBALS['pdo'], $dateStr) : false)) {
+            if (!(isset($GLOBALS['pdo']) ? isManualHoliday($GLOBALS['pdo'], $dateStr) : false)) {
                 $workingDays++;
             }
         }
@@ -3596,6 +3788,10 @@ function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = n
                 'days_with_data' => 0
             ];
             
+            $aggregatedWfaDates = [];
+            $aggregatedIzinSakitDates = [];
+            $aggregatedAlphaDates = [];
+            
             // Add cached records
             $cachedRows = $cachedDataByUser[$uid] ?? [];
             foreach ($cachedRows as $row) {
@@ -3612,6 +3808,15 @@ function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = n
                 $aggregated['total_late_minutes'] += $row['total_late_minutes'];
                 $aggregated['kpi_points'] += (float)$row['kpi_points'];
                 $aggregated['days_with_data'] += $row['days_with_data'];
+                if (!empty($row['wfa_dates'])) {
+                    $aggregatedWfaDates = array_merge($aggregatedWfaDates, explode(',', $row['wfa_dates']));
+                }
+                if (!empty($row['izin_sakit_dates'])) {
+                    $aggregatedIzinSakitDates = array_merge($aggregatedIzinSakitDates, explode(',', $row['izin_sakit_dates']));
+                }
+                if (!empty($row['alpha_dates'])) {
+                    $aggregatedAlphaDates = array_merge($aggregatedAlphaDates, explode(',', $row['alpha_dates']));
+                }
             }
             
             $cachedMonthsFound = [];
@@ -3653,12 +3858,14 @@ function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = n
                                         user_id, year, month, ontime_count, wfo_count, wfa_count, 
                                         late_count, izin_sakit_count, alpha_count, overtime_count, 
                                         missing_daily_reports_count, total_late_minutes, total_working_days, 
-                                        actual_working_days, kpi_points, days_with_data
+                                        actual_working_days, kpi_points, days_with_data,
+                                        wfa_dates, izin_sakit_dates, alpha_dates
                                     ) VALUES (
                                         :user_id, :year, :month, :ontime_count, :wfo_count, :wfa_count, 
                                         :late_count, :izin_sakit_count, :alpha_count, :overtime_count, 
                                         :missing_daily_reports_count, :total_late_minutes, :total_working_days, 
-                                        :actual_working_days, :kpi_points, :days_with_data
+                                        :actual_working_days, :kpi_points, :days_with_data,
+                                        :wfa_dates, :izin_sakit_dates, :alpha_dates
                                     ) ON DUPLICATE KEY UPDATE 
                                         ontime_count = VALUES(ontime_count),
                                         wfo_count = VALUES(wfo_count),
@@ -3672,7 +3879,10 @@ function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = n
                                         total_working_days = VALUES(total_working_days),
                                         actual_working_days = VALUES(actual_working_days),
                                         kpi_points = VALUES(kpi_points),
-                                        days_with_data = VALUES(days_with_data)
+                                        days_with_data = VALUES(days_with_data),
+                                        wfa_dates = VALUES(wfa_dates),
+                                        izin_sakit_dates = VALUES(izin_sakit_dates),
+                                        alpha_dates = VALUES(alpha_dates)
                                 ");
                                 $ins->execute([
                                     ':user_id' => $uid,
@@ -3690,7 +3900,10 @@ function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = n
                                     ':total_working_days' => $raw['total_working_days'],
                                     ':actual_working_days' => $raw['actual_working_days'],
                                     ':kpi_points' => $raw['kpi_points'] ?? 0.00,
-                                    ':days_with_data' => $raw['days_with_data'] ?? 0
+                                    ':days_with_data' => $raw['days_with_data'] ?? 0,
+                                    ':wfa_dates' => $raw['wfa_dates'] ?? '',
+                                    ':izin_sakit_dates' => $raw['izin_sakit_dates'] ?? '',
+                                    ':alpha_dates' => $raw['alpha_dates'] ?? ''
                                 ]);
                             } catch (Exception $e) {
                                 error_log("Failed to write to KPI cache in bulk: " . $e->getMessage());
@@ -3725,6 +3938,15 @@ function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = n
                         $aggregated['total_late_minutes'] += $raw['total_late_minutes'];
                         $aggregated['kpi_points'] += ($raw['kpi_points'] ?? 0.00);
                         $aggregated['days_with_data'] += ($raw['days_with_data'] ?? 0);
+                        if (!empty($raw['wfa_dates'])) {
+                            $aggregatedWfaDates = array_merge($aggregatedWfaDates, explode(',', $raw['wfa_dates']));
+                        }
+                        if (!empty($raw['izin_sakit_dates'])) {
+                            $aggregatedIzinSakitDates = array_merge($aggregatedIzinSakitDates, explode(',', $raw['izin_sakit_dates']));
+                        }
+                        if (!empty($raw['alpha_dates'])) {
+                            $aggregatedAlphaDates = array_merge($aggregatedAlphaDates, explode(',', $raw['alpha_dates']));
+                        }
                     }
                 }
                 $iter->modify('+1 month');
@@ -3742,6 +3964,13 @@ function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = n
             elseif ($finalScore >= 80) $status = 'Good';
             elseif ($finalScore >= 70) $status = 'Fair';
             elseif ($finalScore >= 60) $status = 'Poor';
+            
+            $cleanDates = function($datesArray) {
+                $filtered = array_filter(array_map('trim', $datesArray));
+                $unique = array_unique($filtered);
+                sort($unique);
+                return implode(',', $unique);
+            };
             
             $kpiData[] = [
                 'user_id' => $uid,
@@ -3764,7 +3993,10 @@ function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = n
                 'status' => $status,
                 'period_start' => $periodStart,
                 'period_end' => $periodEnd,
-                'employee_registration_date' => $employee['created_at']
+                'employee_registration_date' => $employee['created_at'],
+                'wfa_dates' => $cleanDates($aggregatedWfaDates),
+                'izin_sakit_dates' => $cleanDates($aggregatedIzinSakitDates),
+                'alpha_dates' => $cleanDates($aggregatedAlphaDates)
             ];
         }
         

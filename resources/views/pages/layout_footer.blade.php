@@ -6501,12 +6501,15 @@ async function loadStartupOptions() {
 <!-- SPBW_SYSTEM_FIX_MARKER: POLICY_SYNC_V3 -->
 // Laporan
 async function renderLaporan(){
-    const j = await api('?ajax=get_attendance', {}, { suppressModal: true, cache: true });
+    const tglMulai = qs('#filter-tanggal-mulai')?.value || '';
+    const tglSelesai = qs('#filter-tanggal-selesai')?.value || '';
+    let url = '?ajax=get_attendance&limit=1000';
+    if (tglMulai) url += '&start_date=' + tglMulai;
+    if (tglSelesai) url += '&end_date=' + tglSelesai;
+    const j = await api(url, {}, { suppressModal: true, cache: false });
     const list = (j.data||[]);
     const term = (qs('#search-laporan')?.value||'').toLowerCase();
     const startupFilter = qs('#filter-startup')?.value || '';
-    const tglMulai = qs('#filter-tanggal-mulai')?.value || '';
-    const tglSelesai = qs('#filter-tanggal-selesai')?.value || '';
     const sortBy = qs('#sort-presensi')?.value || 'tanggal-desc';
     
     // NEW: Get new filter values
@@ -10915,10 +10918,16 @@ function renderKPITable(kpiData) {
                 <td class="px-4 py-3 text-gray-900 font-medium">${employee.nama}</td>
                 <td class="px-4 py-3 text-center text-gray-700">${employee.total_working_days}</td>
                 <td class="px-4 py-3 text-center text-green-600 font-semibold">${employee.ontime_count}</td>
-                <td class="px-4 py-3 text-center text-blue-600 font-semibold">${employee.wfa_count || 0}</td>
+                <td class="px-4 py-3 text-center text-blue-600 font-semibold">
+                    ${employee.wfa_count > 0 ? `<span class="cursor-pointer hover:underline text-blue-600" onclick="showKPIDatesModal('${employee.nama.replace(/'/g, "\\'")}', 'WFA', '${employee.wfa_dates || ''}')">${employee.wfa_count}</span>` : 0}
+                </td>
                 <td class="px-4 py-3 text-center text-red-600 font-semibold">${employee.late_count}</td>
-                <td class="px-4 py-3 text-center text-yellow-600 font-semibold">${employee.izin_sakit_count}</td>
-                <td class="px-4 py-3 text-center text-gray-600 font-semibold">${employee.alpha_count}</td>
+                <td class="px-4 py-3 text-center text-yellow-600 font-semibold">
+                    ${employee.izin_sakit_count > 0 ? `<span class="cursor-pointer hover:underline text-yellow-600" onclick="showKPIDatesModal('${employee.nama.replace(/'/g, "\\'")}', 'Izin / Sakit', '${employee.izin_sakit_dates || ''}')">${employee.izin_sakit_count}</span>` : 0}
+                </td>
+                <td class="px-4 py-3 text-center text-gray-600 font-semibold">
+                    ${employee.alpha_count > 0 ? `<span class="cursor-pointer hover:underline text-gray-600" onclick="showKPIDatesModal('${employee.nama.replace(/'/g, "\\'")}', 'Alpha', '${employee.alpha_dates || ''}')">${employee.alpha_count}</span>` : 0}
+                </td>
                 <td class="px-4 py-3 text-center text-emerald-600 font-semibold">${employee.overtime_count || 0}</td>
                 <td class="px-4 py-3 text-center">
                     <span class="px-2 py-1 rounded-full text-sm font-semibold ${employee.missing_daily_reports_count > 0 ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-800'}">
@@ -10953,6 +10962,100 @@ function getKPIStatusText(score) {
     if (score >= 60) return 'Poor';
     return 'Very Poor';
 }
+
+window.showKPIDatesModal = function(employeeName, type, datesStr) {
+    let modal = document.getElementById('kpi-dates-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'kpi-dates-modal';
+        modal.className = 'fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[9999] hidden animate-fade-in';
+        modal.innerHTML = `
+            <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 overflow-hidden transform transition-all scale-95 duration-200" id="kpi-dates-modal-container">
+                <div class="p-6 border-b border-gray-100 flex items-center justify-between">
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-900" id="kpi-modal-title">Detail Tanggal</h3>
+                        <p class="text-xs text-gray-500 mt-0.5" id="kpi-modal-subtitle">Pegawai</p>
+                    </div>
+                    <button onclick="closeKPIDatesModal()" class="w-8 h-8 flex items-center justify-center rounded-xl bg-gray-50 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors">
+                        <i class="fi fi-rr-cross text-xs"></i>
+                    </button>
+                </div>
+                <div class="p-6 max-h-[350px] overflow-y-auto" id="kpi-modal-content">
+                    <!-- Dates list -->
+                </div>
+                <div class="p-4 bg-gray-50 border-t border-gray-100 flex justify-end">
+                    <button onclick="closeKPIDatesModal()" class="px-4 py-2 bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors rounded-xl text-sm font-semibold">
+                        Tutup
+                    </button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) closeKPIDatesModal();
+        });
+    }
+
+    const titleEl = modal.querySelector('#kpi-modal-title');
+    const subtitleEl = modal.querySelector('#kpi-modal-subtitle');
+    const contentEl = modal.querySelector('#kpi-modal-content');
+    const container = modal.querySelector('#kpi-dates-modal-container');
+
+    titleEl.textContent = `Detail Tanggal ${type}`;
+    subtitleEl.textContent = `Pegawai: ${employeeName}`;
+
+    let dates = datesStr ? datesStr.split(',').map(d => d.trim()).filter(Boolean) : [];
+    
+    if (dates.length === 0) {
+        contentEl.innerHTML = `
+            <div class="flex flex-col items-center justify-center py-6 text-gray-400">
+                <i class="fi fi-rr-calendar-ban text-4xl mb-2"></i>
+                <p class="text-sm">Tidak ada data tanggal</p>
+            </div>
+        `;
+    } else {
+        const formatIndonesianDate = (dateString) => {
+            const date = new Date(dateString);
+            if (isNaN(date)) return dateString;
+            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            return date.toLocaleDateString('id-ID', options);
+        };
+
+        const listHtml = dates.map(date => {
+            return `
+                <div class="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100 hover:bg-gray-100/70 transition-colors mb-2 last:mb-0">
+                    <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-indigo-50 text-indigo-600">
+                        <i class="fi fi-rr-calendar-check text-sm"></i>
+                    </div>
+                    <div class="flex-1">
+                        <p class="text-sm font-medium text-gray-800">${formatIndonesianDate(date)}</p>
+                        <p class="text-xs text-gray-400 mt-0.5">${date}</p>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        contentEl.innerHTML = `<div class="space-y-1">${listHtml}</div>`;
+    }
+
+    modal.classList.remove('hidden');
+    setTimeout(() => {
+        container.classList.remove('scale-95');
+        container.classList.add('scale-100');
+    }, 10);
+};
+
+window.closeKPIDatesModal = function() {
+    const modal = document.getElementById('kpi-dates-modal');
+    if (!modal) return;
+    const container = modal.querySelector('#kpi-dates-modal-container');
+    container.classList.remove('scale-100');
+    container.classList.add('scale-95');
+    setTimeout(() => {
+        modal.classList.add('hidden');
+    }, 150);
+};
 
 // KPI Handlers moved to top of app block for reliability
 
