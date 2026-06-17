@@ -57,7 +57,7 @@
                     <button id="btn-start-detection" class="hidden">Start</button>
                 </div>
                 <!-- Status Message Toast -->
-                <div id="presensi-status" class="fixed bottom-10 left-1/2 -translate-x-1/2 bg-white text-gray-800 px-6 py-3 rounded-full font-medium shadow-xl hidden z-70 animate-fade-in-up"></div>
+                <div id="presensi-status" class="fixed bottom-10 left-1/2 -translate-x-1/2 bg-white text-gray-800 px-6 py-3 rounded-full font-medium shadow-xl hidden z-[70] animate-fade-in-up"></div>
             </div>
 
             <!-- Hero Section -->

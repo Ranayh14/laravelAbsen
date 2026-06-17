@@ -1,5 +1,5 @@
 <!-- Loading Overlay for model -->
-<div id="loading-overlay" class="fixed inset-0 bg-black bg-opacity-75 flex flex-col items-center justify-center z-60 hidden">
+<div id="loading-overlay" class="fixed inset-0 bg-black bg-opacity-75 flex flex-col items-center justify-center z-[60] hidden">
     <div class="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-24 w-24 mb-4"></div>
     <h2 class="text-center text-white text-xl font-semibold">Memuat Sistem Presensi...</h2>
     <p class="w-1/3 text-center text-white text-sm">Memuat model AI dan database wajah. Mohon tunggu sebentar.</p>
@@ -8,7 +8,7 @@
     </div>
 </div>
 
-<div id="notif-bar" class="fixed top-4 left-1/2 transform -translate-x-1/2 bg-indigo-600 text-white px-6 py-3 rounded-lg shadow-lg z-70 hidden"></div>
+<div id="notif-bar" class="fixed top-4 left-1/2 transform -translate-x-1/2 bg-indigo-600 text-white px-6 py-3 rounded-lg shadow-lg z-[70] hidden"></div>
 
 <!-- Global Notification Modal -->
 <div id="global-modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[9999] hidden">
@@ -11222,7 +11222,7 @@ document.addEventListener('click', async (e)=>{
 
 // Tambahkan event listener untuk tombol-tombol di tabel laporan bulanan
 document.addEventListener('click', async (e) => {
-    const target = e.target.closest('.btn-create-month, .btn-edit-month, .btn-view-month, .page-btn');
+    const target = e.target.closest('.btn-create-month, .btn-edit-month, .page-btn');
     if (!target) return;
 
     if (target.classList.contains('page-btn')) {
@@ -11235,7 +11235,7 @@ document.addEventListener('click', async (e) => {
     pageMonthlyForm.classList.remove('hidden');
     pageMonthlyForm.classList.add('flex');
 
-    let isViewOnly = target.classList.contains('btn-view-month');
+    let isViewOnly = false;
     
     let year, month, reportData = null;
 
@@ -11243,11 +11243,11 @@ document.addEventListener('click', async (e) => {
         year = parseInt(target.dataset.year);
         month = parseInt(target.dataset.month);
         qs('#monthly-form-title').textContent = `Buat Laporan Bulan ${monthName(month-1)} ${year}`;
-    } else { // Edit or View
+    } else { // Edit
         reportData = JSON.parse(target.dataset.json.replace(/&apos;/g, "'"));
         year = parseInt(reportData.year) || 0;
         month = parseInt(reportData.month) || 0;
-        qs('#monthly-form-title').textContent = (isViewOnly ? 'Lihat' : 'Edit') + ` Laporan Bulan ${monthName(month-1)} ${year}`;
+        qs('#monthly-form-title').textContent = `Edit Laporan Bulan ${monthName(month-1)} ${year}`;
     }
 
     // Set info pegawai di form

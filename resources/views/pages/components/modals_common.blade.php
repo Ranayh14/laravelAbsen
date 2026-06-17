@@ -185,7 +185,7 @@
 </div>
 
 <!-- Confirm Modal -->
-<div id="confirm-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-70 hidden p-4">
+<div id="confirm-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[80] hidden p-4">
     <div class="bg-white p-6 sm:p-8 rounded-lg shadow-2xl w-full max-w-sm text-center">
         <p id="confirm-modal-message" class="text-lg mb-6">Apakah Anda yakin?</p>
         <div class="flex justify-center space-x-4">
@@ -331,7 +331,7 @@
 </div>
 
 <!-- Modal Edit Bukti Izin/Sakit -->
-<div id="edit-bukti-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-70 hidden">
+<div id="edit-bukti-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-[80] hidden">
     <div class="bg-white p-6 rounded-lg shadow-2xl w-full max-w-lg">
         <h3 class="text-xl font-bold mb-4">Edit Bukti Izin/Sakit</h3>
         <div class="grid gap-3">

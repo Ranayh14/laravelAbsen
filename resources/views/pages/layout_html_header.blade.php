@@ -204,6 +204,11 @@
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
+        .z-60 { z-index: 60; }
+        .z-70 { z-index: 70; }
+        .z-80 { z-index: 80; }
+        .z-90 { z-index: 90; }
+        .z-100 { z-index: 100; }
     </style>
 
 <!-- Global Helper Script for Exports (Generated to ensure availability) -->
