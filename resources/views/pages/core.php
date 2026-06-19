@@ -26,7 +26,7 @@ ini_set('display_errors', '0'); // Never show errors in production
 @ini_set('memory_limit', '256M'); // Increase from default 128M
 @ini_set('max_execution_time', '60'); // Prevent infinite hangs
 
-error_log('bootstrap: core.php started');
+// Bootstrap selesai — log ini dihapus karena dipanggil di setiap request
 
 // Include helpers
 require_once __DIR__ . '/backup_helper.php';
@@ -1276,61 +1276,84 @@ if (!function_exists('formatBytes')) {
     }
 }
 
+
 /**
- * Helper function untuk memanggil backup database setelah operasi yang mengubah data
+ * Helper function untuk memanggil backup database setelah operasi yang mengubah data.
+ * 
+ * PERFORMANCE FIX: Backup sekarang NON-BLOCKING dan dibatasi 1x per hari.
+ * Sebelumnya: backup sinkron dipanggil 24+ kali (memblokir request 10-60 detik!).
+ * Sekarang: cek flag file harian, jika perlu → jalankan di background (fire-and-forget).
  */
 function triggerDatabaseBackup(): void {
     try {
-        // Check if backup functions are available
-        if (!function_exists('createDatabaseBackup')) {
-            error_log("Backup functions not available");
-            return;
+        // Rate-limit: hanya backup 1x per hari menggunakan flag file
+        $flagFile = sys_get_temp_dir() . '/absen_backup_' . date('Y-m-d') . '.flag';
+        if (file_exists($flagFile)) {
+            return; // Sudah backup hari ini, skip
         }
         
-        // Create backup
-        $backupResult = createDatabaseBackup();
+        // Tandai sudah backup hari ini (sebelum proses untuk mencegah race condition)
+        @file_put_contents($flagFile, time());
         
-        if (!($backupResult['ok'] ?? $backupResult['success'] ?? false)) {
-            error_log("Backup gagal: " . $backupResult['message']);
+        // Fire-and-forget: jalankan backup di background agar tidak memblokir request
+        if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+            // Windows: gunakan START /B untuk background process
+            $artisan = base_path('artisan');
+            $phpPath = PHP_BINARY ?: 'php';
+            @pclose(@popen("start /B \"\" {$phpPath} -r \"require_once '" . addslashes(__DIR__) . "/backup_helper.php'; createDatabaseBackup();\" > NUL 2>&1", 'r'));
         } else {
-            $sizeStr = isset($backupResult['size']) ? formatBytes($backupResult['size']) : 'N/A';
-            error_log("Backup berhasil: " . $backupResult['message'] . " (Size: " . $sizeStr . ")");
+            // Linux/Unix hosting: gunakan nohup
+            $phpPath = PHP_BINARY ?: 'php';
+            @shell_exec("nohup {$phpPath} -r \"require_once '" . addslashes(__DIR__) . "/backup_helper.php'; createDatabaseBackup();\" > /dev/null 2>&1 &");
         }
+        
+        error_log("triggerDatabaseBackup: Backup dijadwalkan di background untuk hari ini.");
     } catch (Exception $e) {
-        error_log("Error dalam backup: " . $e->getMessage());
+        error_log("Error dalam triggerDatabaseBackup: " . $e->getMessage());
     }
 }
+
 
 try {
     $pdo = getPdo();
     
-    // Auto-create cache table if it doesn't exist to avoid manual intervention in production hosting
-    try {
-        $checkTable = $pdo->query("SHOW TABLES LIKE 'kpi_monthly_cache'");
-        if ($checkTable->rowCount() == 0) {
-            ensureSchema($pdo);
+    // PERFORMANCE FIX: Guard expensive boot queries with session flags.
+    // Previously these ran on EVERY page load, causing significant DB overhead.
+    $bootDoneKey = '_app_boot_done_v3';
+    $needsBoot = empty($_SESSION[$bootDoneKey]);
+
+    if ($needsBoot) {
+        // Auto-create cache table if it doesn't exist
+        try {
+            $checkTable = $pdo->query("SHOW TABLES LIKE 'kpi_monthly_cache'");
+            if ($checkTable->rowCount() == 0) {
+                ensureSchema($pdo);
+            }
+        } catch (Exception $e) {
+            error_log("Failed to check or auto-initialize kpi_monthly_cache: " . $e->getMessage());
         }
-    } catch (Exception $e) {
-        error_log("Failed to check or auto-initialize kpi_monthly_cache: " . $e->getMessage());
-    }
-    
-    // Seed national holidays to manual_holidays table if not already seeded
-    try {
-        seedNationalHolidays($pdo);
-    } catch (Exception $e) {
-        error_log("Failed to seed national holidays: " . $e->getMessage());
-    }
-    
-    // Clear KPI cache once to migrate date lists
-    try {
-        $flag = getSetting($pdo, 'kpi_cache_dates_cleared_v1');
-        if ($flag !== '1') {
-            clearAllKpiCache($pdo);
-            $setFlag = $pdo->prepare("INSERT INTO settings (setting_key, setting_value, description) VALUES ('kpi_cache_dates_cleared_v1', '1', 'Flag indicating cache cleared for date columns migration') ON DUPLICATE KEY UPDATE setting_value = '1'");
-            $setFlag->execute();
+        
+        // Seed national holidays once per session
+        try {
+            seedNationalHolidays($pdo);
+        } catch (Exception $e) {
+            error_log("Failed to seed national holidays: " . $e->getMessage());
         }
-    } catch (Exception $e) {
-        error_log("Failed to run cache migration: " . $e->getMessage());
+        
+        // Clear KPI cache once to migrate date lists (one-time migration)
+        try {
+            $flag = getSetting($pdo, 'kpi_cache_dates_cleared_v1');
+            if ($flag !== '1') {
+                clearAllKpiCache($pdo);
+                $setFlag = $pdo->prepare("INSERT INTO settings (setting_key, setting_value, description) VALUES ('kpi_cache_dates_cleared_v1', '1', 'Flag indicating cache cleared for date columns migration') ON DUPLICATE KEY UPDATE setting_value = '1'");
+                $setFlag->execute();
+            }
+        } catch (Exception $e) {
+            error_log("Failed to run cache migration: " . $e->getMessage());
+        }
+        
+        // Mark boot as done for this session
+        $_SESSION[$bootDoneKey] = true;
     }
     
     // PERFORMANCE: Only run schema verification if explicitly requested

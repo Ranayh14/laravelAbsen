@@ -15,9 +15,14 @@ if (isset($_REQUEST['ajax'])) {
     if (!in_array($action, ['login', 'register', 'get_members', 'get_member_photo', 'save_face_embedding', 'save_attendance', 'get_today_attendance', 'forgot_password', 'verify_otp', 'reset_password', 'get_ga_qr', 'get_public_daily_report_stats', 'reverse_geocode', 'submit_help_request', 'search_address', 'get_clockin_location', 'get_settings'], true)) {
         if (!isset($_SESSION['user'])) jsonResponse(['error' => 'Unauthorized'], 401);
         
-        // Auto-cleanup old photos when any authorized action is performed
-        // This ensures storage stays optimized
-        if (isset($pdo)) cleanupOldAttendancePhotos($pdo);
+        // Auto-cleanup old photos — THROTTLED: max 1x per hour (per session)
+        // PERFORMANCE FIX: Previously ran on EVERY authenticated request, causing heavy DB load.
+        $cleanupSessionKey = '_last_photo_cleanup_ts';
+        $lastCleanupTs = $_SESSION[$cleanupSessionKey] ?? 0;
+        if (isset($pdo) && (time() - $lastCleanupTs) > 3600) {
+            cleanupOldAttendancePhotos($pdo);
+            $_SESSION[$cleanupSessionKey] = time();
+        }
     }
     // Address Search
     if ($action === 'search_address') {
@@ -101,15 +106,11 @@ if (isset($_REQUEST['ajax'])) {
                 jsonResponse(['ok'=>false,'message'=>'Tabel manual_holidays tidak ditemukan'],500);
             }
             
-            // Check table structure
-            $checkColumns = $pdo->query("DESCRIBE manual_holidays");
-            $columns = $checkColumns->fetchAll(PDO::FETCH_COLUMN);
-            error_log('manual_holidays columns: ' . implode(', ', $columns));
+            // Table structure check — log dihapus (bukan hot fix lagi)
             
             // Validate user session
             $userId = $_SESSION['user']['id'] ?? null;
             if (!$userId) {
-                error_log('No user ID in session');
                 jsonResponse(['ok'=>false,'message'=>'Session tidak valid'],400);
             }
             
@@ -677,19 +678,7 @@ if (isset($_REQUEST['ajax'])) {
             }
         }
         
-        // DIAGNOSTIC: Log data to check for foto_masuk presence
-        if (count($rows) > 0) {
-            $testRow = $rows[0];
-            $hasPhoto = !empty($testRow['foto_masuk']) || !empty($testRow['foto_pulang']);
-            error_log("get_today_attendance (action=$action, type=$type): Found " . count($rows) . " rows. First row has photo: " . ($hasPhoto ? 'YES' : 'NO'));
-            if ($hasPhoto) {
-                $photo = $type === 'masuk' ? $testRow['foto_masuk'] : $testRow['foto_pulang'];
-                error_log("Photo snippet: " . substr($photo, 0, 50) . "...");
-            }
-        }
-        
-        // Debug log
-        error_log("get_today_attendance: type=$type, today=$today, count=" . count($rows));
+        // Diagnostic logs dihapus — endpoint ini sering dipanggil dan error_log menyebabkan I/O overhead.
         
         jsonResponse(['ok' => true, 'data' => $rows]);
     }
