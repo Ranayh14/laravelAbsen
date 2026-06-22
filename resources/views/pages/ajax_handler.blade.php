@@ -1803,7 +1803,7 @@ if (isset($_REQUEST['ajax'])) {
                 if ($alasanPulangAwal) {
                     // Requires approval - send to admin_help_requests
                     // 'subtype' is encoded in attendance_reason as 'pulang_lebih_awal|<reason>' for correct label display
-                    $ins = $pdo->prepare("INSERT INTO admin_help_requests (user_id, request_type, tanggal, jam_masuk, jam_pulang, bukti_presensi, lokasi_presensi, attendance_type, attendance_reason, status) VALUES (:uid, 'late_attendance', :today, :jmasuk, :jam, :screenshot, :lokasi, :ket, :alasan, 'pending')");
+                    $ins = $pdo->prepare("INSERT INTO admin_help_requests (user_id, request_type, tanggal, jam_masuk, jam_pulang, bukti_presensi, lokasi_presensi, lat_pulang, lng_pulang, ekspresi_pulang, attendance_type, attendance_reason, status) VALUES (:uid, 'late_attendance', :today, :jmasuk, :jam, :screenshot, :lokasi, :lat, :lng, :ekspresi, :ket, :alasan, 'pending')");
                     $ins->execute([
                         ':uid' => $u['id'],
                         ':today' => $today,
@@ -1811,6 +1811,9 @@ if (isset($_REQUEST['ajax'])) {
                         ':jam' => $jamSekarang,
                         ':screenshot' => $screenshot,
                         ':lokasi' => $lokasi,
+                        ':lat' => $lat,
+                        ':lng' => $lng,
+                        ':ekspresi' => $ekspresi,
                         ':ket' => $todayRow['ket'], // Keep original ket
                         ':alasan' => 'pulang_lebih_awal|' . $alasanPulangAwal // Prefixed to distinguish from manual 'lupa presensi'
                     ]);
@@ -1819,6 +1822,33 @@ if (isset($_REQUEST['ajax'])) {
                     $firstName = getFirstName($u['nama']);
                     $statusText = "Permintaan pulang lebih awal telah dikirim dan menunggu persetujuan Admin.";
                     jsonResponse(['ok' => true, 'message' => $statusText, 'nama' => $u['nama'], 'jam' => $jamPulangFormat, 'statusClass' => 'bg-yellow-100 text-yellow-700']);
+                    return;
+                }
+
+                // NEW: If checkout location differs from checkin, require admin approval
+                if ($diffLocationReason) {
+                    $ins = $pdo->prepare("INSERT INTO admin_help_requests (user_id, request_type, tanggal, jam_masuk, jam_pulang, bukti_presensi, lokasi_presensi, lat_pulang, lng_pulang, ekspresi_pulang, attendance_type, attendance_reason, status) VALUES (:uid, 'diff_location_checkout', :today, :jmasuk, :jam, :screenshot, :lokasi, :lat, :lng, :ekspresi, :ket, :alasan, 'pending')");
+                    $ins->execute([
+                        ':uid'       => $u['id'],
+                        ':today'     => $today,
+                        ':jmasuk'    => $todayRow['jam_masuk'],
+                        ':jam'       => $jamSekarang,
+                        ':screenshot'=> $screenshot,
+                        ':lokasi'    => $lokasi,
+                        ':lat'       => $lat,
+                        ':lng'       => $lng,
+                        ':ekspresi'  => $ekspresi,
+                        ':ket'       => $todayRow['ket'],
+                        ':alasan'    => 'diff_location|' . $diffLocationReason // Prefixed for identification
+                    ]);
+                    $jamPulangFormat = substr($jamSekarang, 0, 5);
+                    jsonResponse([
+                        'ok'          => true,
+                        'message'     => "Presensi pulang Anda tercatat pukul {$jamPulangFormat}, namun lokasi berbeda. Permintaan menunggu persetujuan Admin.",
+                        'nama'        => $u['nama'],
+                        'jam'         => $jamPulangFormat,
+                        'statusClass' => 'bg-yellow-100 text-yellow-700'
+                    ]);
                     return;
                 }
                 
@@ -4316,6 +4346,45 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
                         ':k' => $req['alasan_izin'],
                         ':b' => $req['bukti_izin']
                     ]);
+                } elseif ($req['request_type'] === 'diff_location_checkout') {
+                    // Admin approves checkout with different location
+                    // Find today's attendance record for this user
+                    $check = $pdo->prepare("SELECT id FROM attendance WHERE user_id = :uid AND DATE(jam_masuk_iso) = :date AND jam_pulang IS NULL LIMIT 1");
+                    $check->execute([':uid' => $req['user_id'], ':date' => $req['tanggal']]);
+                    $existing = $check->fetch();
+
+                    if ($existing) {
+                        // Strip 'diff_location|' prefix to get the clean reason
+                        $rawReason = $req['attendance_reason'] ?? '';
+                        $cleanReason = strpos($rawReason, 'diff_location|') === 0
+                            ? substr($rawReason, strlen('diff_location|'))
+                            : $rawReason;
+
+                        $jpISO = $req['tanggal'] . ' ' . $req['jam_pulang'];
+                        $upd = $pdo->prepare("UPDATE attendance SET
+                            jam_pulang       = :jp,
+                            jam_pulang_iso   = :jpi,
+                            ekspresi_pulang  = :exp,
+                            foto_pulang      = :foto,
+                            lokasi_pulang    = :lokasi,
+                            lat_pulang       = :lat,
+                            lng_pulang       = :lng,
+                            alasan_lokasi_berbeda = :alasan
+                            WHERE id = :id");
+                        $upd->execute([
+                            ':jp'     => substr($req['jam_pulang'], 0, 5),
+                            ':jpi'    => $jpISO,
+                            ':exp'    => $req['ekspresi_pulang'] ?? null,
+                            ':foto'   => $req['bukti_presensi'],
+                            ':lokasi' => $req['lokasi_presensi'],
+                            ':lat'    => $req['lat_pulang'] ?? null,
+                            ':lng'    => $req['lng_pulang'] ?? null,
+                            ':alasan' => $cleanReason,
+                            ':id'     => $existing['id']
+                        ]);
+                        clearKpiCache($pdo, $req['user_id'], $req['tanggal']);
+                        triggerDatabaseBackup();
+                    }
                 } elseif ($req['request_type'] === 'late_attendance') {
                     // Determine ket and reason based on request
                     $ket = $req['attendance_type'] ?? 'wfo';

@@ -357,6 +357,23 @@ function ensureSchema(PDO $pdo): void {
         $pdo->exec("ALTER TABLE admin_help_requests MODIFY COLUMN status ENUM('pending', 'approved', 'disapproved', 'solved') DEFAULT 'pending'");
     } catch (PDOException $e) {}
 
+    // Migration: extend request_type ENUM to include diff_location_checkout
+    try {
+        $pdo->exec("ALTER TABLE admin_help_requests MODIFY COLUMN request_type ENUM('past_attendance', 'late_attendance', 'bug_report', 'diff_location_checkout') NOT NULL");
+    } catch (PDOException $e) {}
+
+    // Migration: add lat_pulang and lng_pulang columns for diff_location_checkout
+    try {
+        $pdo->exec("ALTER TABLE admin_help_requests ADD COLUMN lat_pulang DECIMAL(10,7) NULL AFTER lokasi_presensi");
+    } catch (PDOException $e) {}
+    try {
+        $pdo->exec("ALTER TABLE admin_help_requests ADD COLUMN lng_pulang DECIMAL(10,7) NULL AFTER lat_pulang");
+    } catch (PDOException $e) {}
+    // Migration: add ekspresi_pulang for diff_location_checkout
+    try {
+        $pdo->exec("ALTER TABLE admin_help_requests ADD COLUMN ekspresi_pulang VARCHAR(50) NULL AFTER lng_pulang");
+    } catch (PDOException $e) {}
+
     // Add is_read_by_user column for employee notifications
     try {
         $pdo->exec("ALTER TABLE admin_help_requests ADD COLUMN is_read_by_user BOOLEAN DEFAULT FALSE AFTER admin_note");

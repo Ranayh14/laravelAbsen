@@ -11988,6 +11988,42 @@ qs('#work-schedule-save') && qs('#work-schedule-save').addEventListener('click',
                     </div>
                 ` : ''}
             `;
+        } else if (item.request_type === 'diff_location_checkout') {
+            const cleanReason = item.attendance_reason ? item.attendance_reason.replace('diff_location|', '') : '-';
+            return `
+                <div class="mb-4 pb-4 border-b border-gray-50">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <p class="text-xs text-gray-400 mb-1">Tanggal Request</p>
+                            <p class="text-sm font-bold text-gray-800">${item.tanggal ? formatDate(item.tanggal) : '-'}</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-400 mb-1">Jam Pulang</p>
+                            <p class="text-sm font-bold text-rose-700">${item.jam_pulang ? item.jam_pulang.substring(0,5) : '-'}</p>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <p class="text-xs text-gray-400 mb-1">Alasan Lokasi Berbeda</p>
+                    <p class="text-sm text-gray-700 bg-rose-50 p-3 rounded-xl italic border-l-4 border-rose-300">${cleanReason}</p>
+                </div>
+                <div class="mt-4">
+                    <p class="text-xs text-gray-400 mb-1">Lokasi Verifikasi <span class="text-green-600">(otomatis dari GPS)</span></p>
+                    <p class="text-xs text-gray-700 italic">${item.lokasi_presensi || '-'}</p>
+                    ${(item.lat_pulang && item.lng_pulang) ? `<p class="text-[10px] text-gray-500 mt-1">Koordinat: ${item.lat_pulang}, ${item.lng_pulang}</p>
+                    <a href="https://maps.google.com/?q=${item.lat_pulang},${item.lng_pulang}" target="_blank" class="inline-block mt-2 text-xs font-bold text-indigo-600 hover:underline"><i class="fi fi-rr-map-marker"></i> Lihat di Maps</a>` : ''}
+                </div>
+                ${item.bukti_presensi ? (() => {
+                    const bp = item.bukti_presensi;
+                    const bpSrc = bp.startsWith('data:') ? bp : (bp.startsWith('/') ? bp : '/' + bp);
+                    return `
+                    <div class="mt-4">
+                        <p class="text-xs text-gray-400 mb-2">Bukti Wajah</p>
+                        <img src="${bpSrc}" class="w-full h-48 object-cover rounded-2xl cursor-pointer hover:opacity-90 transition-opacity" onclick="showScreenshotModal('${bpSrc.replace(/'/g, '%27')}', 'Verifikasi Wajah')" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+                        <div style="display:none" class="w-full h-20 bg-red-50 rounded-2xl border border-red-200 flex items-center justify-center text-red-400 text-xs"><i class="fi fi-rr-picture mr-1"></i> Gambar tidak tersedia</div>
+                    </div>`;
+                })() : ''}
+            `;
         }
         return ``;
     }
@@ -12170,7 +12206,8 @@ function getRequestTypeLabel(type, item) {
     }
     const labels = {
         'late_attendance': 'Presensi Terlambat',
-        'bug_report': 'Laporan Bug'
+        'bug_report': 'Laporan Bug',
+        'diff_location_checkout': 'Lokasi Pulang Berbeda'
     };
     return labels[type] || type;
 }
@@ -12179,7 +12216,8 @@ function getRequestTypeClass(type) {
     const classes = {
         'past_attendance': 'bg-blue-50 text-blue-600',
         'late_attendance': 'bg-purple-50 text-purple-600',
-        'bug_report': 'bg-amber-50 text-amber-600'
+        'bug_report': 'bg-amber-50 text-amber-600',
+        'diff_location_checkout': 'bg-rose-50 text-rose-600'
     };
     return classes[type] || 'bg-gray-50 text-gray-600';
 }

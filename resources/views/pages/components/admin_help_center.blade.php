@@ -523,6 +523,7 @@
                         else typeLabel = '<i class="fi fi-rr-calendar-clock text-blue-500"></i> Lupa Presensi';
                     }
                     else if (r.request_type === 'bug_report') typeLabel = '<i class="fi fi-rr-bug text-red-500"></i> Laporan Bug';
+                    else if (r.request_type === 'diff_location_checkout') typeLabel = '<i class="fi fi-rr-map-marker-cross text-rose-500"></i> Lokasi Pulang Berbeda';
                     else if (r.request_type === 'late_attendance') {
                         // 'pulang_lebih_awal|' prefix in attendance_reason identifies auto-generated early checkout requests
                         const isPulangLebihAwal = r.attendance_reason && r.attendance_reason.startsWith('pulang_lebih_awal|');
@@ -549,6 +550,11 @@
                         }
                     }
                     if (r.request_type === 'bug_report') summary = (r.bug_description || '').slice(0, 80);
+                    if (r.request_type === 'diff_location_checkout') {
+                        const cleanReason = r.attendance_reason ? r.attendance_reason.replace('diff_location|', '') : '';
+                        summary = 'Pulang pukul: ' + (r.jam_pulang ? r.jam_pulang.slice(0,5) : '-');
+                        if (cleanReason) summary += ' | Alasan: ' + cleanReason.slice(0, 50);
+                    }
 
                     const adminNote = (r.admin_note && r.status !== 'pending') ?
                         `<div class="mt-2 p-2.5 bg-gray-50 rounded-lg border-l-2 ${r.status === 'approved' || r.status === 'solved' ? 'border-green-400' : 'border-red-400'}">
