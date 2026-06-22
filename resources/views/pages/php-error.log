@@ -1,0 +1,31 @@
+[22-Jun-2026 08:43:51 Asia/Jakarta] Trend Debug - All employees in October: 15
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Employee: Rana Yoda Hanifah (ID: 2) registered: 2025-08-29 16:57:01
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Employee: Dian Safitri (ID: 3) registered: 2025-09-02 11:44:00
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Employee: Maria Oxtavia Laurence Siboro (ID: 4) registered: 2025-09-02 11:46:31
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Employee: Alea Atapasya (ID: 6) registered: 2025-09-02 11:52:59
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Employee: Dini Auliya Fauziah (ID: 7) registered: 2025-09-02 11:56:32
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Employee: Stephanie (ID: 8) registered: 2025-09-02 11:58:19
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Employee: Syahwan Nur Madli (ID: 9) registered: 2025-09-02 12:02:30
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Employee: Daffa Akhadi Yoga Perdana (ID: 10) registered: 2025-09-02 12:04:05
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Employee: Agvin Amalia Nurfitri (ID: 11) registered: 2025-09-02 12:07:11
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Employee: Maulana Febrian Nurhasan (ID: 12) registered: 2025-09-02 12:11:05
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Employee: Aris Rosian Putra Borneo (ID: 13) registered: 2025-09-02 12:15:16
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Employee: Faisya Cahyarani Pidieanti (ID: 14) registered: 2025-09-02 12:19:11
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Employee: Novita Wika Rahmaningsih (ID: 16) registered: 2025-09-02 12:25:45
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Employee: Arlita Surya Cantika (ID: 17) registered: 2025-09-02 12:31:01
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Employee: Yustika Dewi Amelia (ID: 18) registered: 2025-09-02 12:34:52
+[22-Jun-2026 08:43:51 Asia/Jakarta] Trend Debug October 2025:
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Total working days: 23
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Total employees: 15
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Total possible attendance: 345
+[22-Jun-2026 08:43:51 Asia/Jakarta] - OnTime: 338
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Late: 0
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Izin/Sakit from attendance: 0
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Izin/Sakit from notes: 8
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Total Izin/Sakit: 8
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Alpha: -1
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Total absent: 8
+[22-Jun-2026 08:43:51 Asia/Jakarta] - Expected calculation: 16 employees × 11 days = 176, 176 - 44 - 21 = 111, +1 = 112
+[22-Jun-2026 08:43:51 Asia/Jakarta] get_kpi_data - Monthly filter: 6/2026 (2026-06-01 to 2026-06-30)
+[22-Jun-2026 08:43:51 Asia/Jakarta] get_kpi_data - Admin dashboard, returning all KPI data
+[22-Jun-2026 08:52:36 Asia/Jakarta] get_attendance: Found 1000 rows. First row ID: 2904, Has photo: NO

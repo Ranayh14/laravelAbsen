@@ -9580,6 +9580,8 @@ async function renderSettings() {
             if(qs('#kpi-izin-sakit')) qs('#kpi-izin-sakit').value = settings.kpi_izin_sakit_score?.value || '85';
             if(qs('#kpi-alpha')) qs('#kpi-alpha').value = settings.kpi_alpha_score?.value || '0';
             if(qs('#kpi-overtime-bonus')) qs('#kpi-overtime-bonus').value = settings.kpi_overtime_bonus?.value || '5';
+            if(qs('#kpi-late-max-deduction')) qs('#kpi-late-max-deduction').value = settings.kpi_late_max_deduction?.value || '100';
+            if(qs('#kpi-late-tolerance')) qs('#kpi-late-tolerance').value = settings.kpi_late_tolerance_minutes?.value || '0';
             if(qs('#max-daily-report-days-back')) qs('#max-daily-report-days-back').value = settings.max_daily_report_days_back?.value || '5';
             if(qs('#max-monthly-report-months-back')) qs('#max-monthly-report-months-back').value = settings.max_monthly_report_months_back?.value || '999';
             if(qs('#monthly-report-end-year')) qs('#monthly-report-end-year').value = settings.monthly_report_end_year?.value || '2026';
@@ -9826,6 +9828,9 @@ qs('#reset-settings') && qs('#reset-settings').addEventListener('click', () => {
     if(qs('#kpi-late-penalty')) qs('#kpi-late-penalty').value = '1';
     if(qs('#kpi-izin-sakit')) qs('#kpi-izin-sakit').value = '85';
     if(qs('#kpi-alpha')) qs('#kpi-alpha').value = '0';
+    if(qs('#kpi-overtime-bonus')) qs('#kpi-overtime-bonus').value = '5';
+    if(qs('#kpi-late-max-deduction')) qs('#kpi-late-max-deduction').value = '100';
+    if(qs('#kpi-late-tolerance')) qs('#kpi-late-tolerance').value = '0';
     showNotif('Pengaturan direset ke default', true);
 });
 

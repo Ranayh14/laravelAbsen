@@ -3137,6 +3137,8 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
         $kpiIzinSakit = trim($_POST['kpi_izin_sakit'] ?? '');
         $kpiAlpha = trim($_POST['kpi_alpha'] ?? '');
         $kpiOvertimeBonus = trim($_POST['kpi_overtime_bonus'] ?? '');
+        $kpiLateMaxDeduction = trim($_POST['kpi_late_max_deduction'] ?? '');
+        $kpiLateTolerance = trim($_POST['kpi_late_tolerance'] ?? '');
         $maxDailyReportDaysBack = trim($_POST['max_daily_report_days_back'] ?? '');
         $maxMonthlyReportMonthsBack = trim($_POST['max_monthly_report_months_back'] ?? '');
         $monthlyReportEndYear = trim($_POST['monthly_report_end_year'] ?? '');
@@ -3176,6 +3178,12 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
         if ($kpiOvertimeBonus !== '' && (!is_numeric($kpiOvertimeBonus) || $kpiOvertimeBonus < 0 || $kpiOvertimeBonus > 100)) {
             jsonResponse(['ok' => false, 'message' => 'Bonus KPI untuk overtime harus berupa angka 0-100'], 400);
         }
+        if ($kpiLateMaxDeduction !== '' && (!is_numeric($kpiLateMaxDeduction) || $kpiLateMaxDeduction < 0 || $kpiLateMaxDeduction > 100)) {
+            jsonResponse(['ok' => false, 'message' => 'Maks pengurangan terlambat harus berupa angka 0-100'], 400);
+        }
+        if ($kpiLateTolerance !== '' && (!is_numeric($kpiLateTolerance) || $kpiLateTolerance < 0 || $kpiLateTolerance > 120)) {
+            jsonResponse(['ok' => false, 'message' => 'Toleransi keterlambatan harus berupa angka 0-120 menit'], 400);
+        }
         
         setSetting($pdo, 'max_ontime_hour', $maxOntimeHour);
         setSetting($pdo, 'min_checkout_hour', $minCheckoutHour);
@@ -3196,6 +3204,11 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
         if ($kpiIzinSakit !== '') setSetting($pdo, 'kpi_izin_sakit_score', $kpiIzinSakit);
         if ($kpiAlpha !== '') setSetting($pdo, 'kpi_alpha_score', $kpiAlpha);
         if ($kpiOvertimeBonus !== '') setSetting($pdo, 'kpi_overtime_bonus', $kpiOvertimeBonus);
+        if ($kpiLateMaxDeduction !== '') setSetting($pdo, 'kpi_late_max_deduction', $kpiLateMaxDeduction);
+        if ($kpiLateTolerance !== '') setSetting($pdo, 'kpi_late_tolerance_minutes', $kpiLateTolerance);
+        
+        // Bersihkan KPI cache setelah perubahan setting karena akan mempengaruhi hasil
+        clearAllKpiCache($pdo);
         
         // Save WFO API settings
         if ($wfoMode !== '') setSetting($pdo, 'wfo_mode', $wfoMode);

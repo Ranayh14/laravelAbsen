@@ -544,6 +544,8 @@ function seedDefaultSettings(PDO $pdo): void {
         ['wfo_require_wifi', '1', 'Wajib menggunakan WiFi Telkom University untuk presensi WFO (1=Ya, 0=Tidak)'],
         ['attendance_period_end', date('Y-12-31'), 'Tanggal akhir periode perhitungan absen (YYYY-MM-DD)'],
         ['kpi_late_penalty_per_minute', '1', 'Pengurangan KPI per menit terlambat (%)'],
+        ['kpi_late_max_deduction', '100', 'Maksimal pengurangan KPI karena terlambat per hari (%, default 100 = tidak terbatas)'],
+        ['kpi_late_tolerance_minutes', '0', 'Toleransi keterlambatan dalam menit (0 = tidak ada toleransi)'],
         ['kpi_izin_sakit_score', '85', 'Nilai KPI untuk izin/sakit (%)'],
         ['kpi_alpha_score', '0', 'Nilai KPI untuk alpha (%)'],
         ['kpi_overtime_bonus', '5', 'Bonus KPI untuk overtime (%)'],
@@ -2376,6 +2378,8 @@ function calculateKPIForEmployeeRaw(
     try {
         // Get KPI settings
         $latePenaltyPerMinute = (float)getSetting($pdo, 'kpi_late_penalty_per_minute', '1');
+        $lateMaxDeduction = (float)getSetting($pdo, 'kpi_late_max_deduction', '100');     // Maks pengurangan per hari (default 100 = tidak dibatasi)
+        $lateToleranceMinutes = (int)getSetting($pdo, 'kpi_late_tolerance_minutes', '0');  // Toleransi menit sebelum dikurangi KPI
         $izinSakitScore = (float)getSetting($pdo, 'kpi_izin_sakit_score', '85');
         $alphaScore = (float)getSetting($pdo, 'kpi_alpha_score', '0');
         $overtimeBonus = (float)getSetting($pdo, 'kpi_overtime_bonus', '5');
@@ -2716,14 +2720,24 @@ function calculateKPIForEmployeeRaw(
         $ontimeScore = $ontimeCount * 100;
         $kpiScore += $ontimeScore;
         
-        // Late: calculate per occurrence (100% - minutes late)
+        // Late: calculate per occurrence with tolerance and max deduction
         $lateTotalScore = 0;
         foreach ($lateRecords as $lateMinutes) {
-            // Formula: 100% - (minutes late)
-            // Example: terlambat 10 menit = 100 - 10 = 90%
-            // Example: terlambat 9 menit = 100 - 9 = 91%
-            $lateScore = 100 - $lateMinutes; // 100% - minutes late
-            $lateScore = max(0, $lateScore); // Ensure not negative (if terlambat > 100 menit, score = 0)
+            // Apply tolerance: kurangi menit toleransi dari menit keterlambatan
+            // Jika masih dalam toleransi, tidak ada pengurangan KPI
+            $effectiveLateMinutes = max(0, $lateMinutes - $lateToleranceMinutes);
+            
+            // Formula: 100% - (menit terlambat efektif setelah toleransi)
+            // Contoh toleransi 15 menit, terlambat 10 menit -> efektif 0 menit -> skor = 100
+            // Contoh toleransi 15 menit, terlambat 25 menit -> efektif 10 menit -> skor = 90
+            $rawDeduction = $effectiveLateMinutes; // 1 menit = 1% pengurangan (default)
+            
+            // Apply max deduction cap: pengurangan tidak boleh melebihi batas maksimal
+            // Contoh: lateMaxDeduction=30 artinya minimal skor = 70% meski terlambat berapa pun
+            $actualDeduction = min($rawDeduction, $lateMaxDeduction);
+            
+            $lateScore = 100 - $actualDeduction;
+            $lateScore = max(0, $lateScore); // Pastikan tidak negatif
             $lateTotalScore += $lateScore;
         }
         $kpiScore += $lateTotalScore;

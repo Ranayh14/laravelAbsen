@@ -221,18 +221,43 @@
                     <div>
                         <label class="block text-xs text-gray-600 mb-1 font-medium">Penalti Terlambat (%)</label>
                         <input type="number" id="kpi-late-penalty" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-sm" value="1" step="0.1">
+                        <p class="text-[10px] text-gray-500 mt-1">Pengurangan KPI per menit terlambat. <em>Contoh: 1 → terlambat 10 mnt = -10%</em></p>
                     </div>
                     <div>
                         <label class="block text-xs text-gray-600 mb-1 font-medium">Nilai Izin/Sakit (%)</label>
                         <input type="number" id="kpi-izin-sakit" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-sm" value="85">
+                        <p class="text-[10px] text-gray-500 mt-1">Skor KPI tetap untuk hari izin atau sakit.</p>
                     </div>
                     <div>
                         <label class="block text-xs text-gray-600 mb-1 font-medium">Nilai Alpha (%)</label>
                         <input type="number" id="kpi-alpha" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-sm" value="0">
+                        <p class="text-[10px] text-gray-500 mt-1">Skor KPI untuk hari tidak hadir tanpa keterangan.</p>
                     </div>
                     <div>
                         <label class="block text-xs text-gray-600 mb-1 font-medium">Bonus Overtime (%)</label>
                         <input type="number" id="kpi-overtime-bonus" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-sm" value="10">
+                        <p class="text-[10px] text-gray-500 mt-1">Poin bonus KPI per hari overtime.</p>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 pt-4 border-t border-gray-100">
+                    <div>
+                        <label class="block text-xs text-gray-600 mb-1 font-medium">Maks Pengurangan Terlambat (%)</label>
+                        <input type="number" id="kpi-late-max-deduction" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-sm" value="100" min="0" max="100" step="1">
+                        <p class="text-[10px] text-gray-500 mt-1">
+                            Batas maksimal poin yang bisa dikurangi akibat keterlambatan dalam satu hari.<br>
+                            <em>Contoh: diisi 30 → keterlambatan sebesar apapun, skor minimal tetap 70%.</em><br>
+                            <em>Default 100 = tidak ada batas (skor bisa sampai 0%).</em>
+                        </p>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-600 mb-1 font-medium">Toleransi Keterlambatan (menit)</label>
+                        <input type="number" id="kpi-late-tolerance" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-sm" value="0" min="0" max="60" step="1">
+                        <p class="text-[10px] text-gray-500 mt-1">
+                            Jumlah menit toleransi yang tidak mengurangi KPI (status tetap terlambat).<br>
+                            <em>Contoh: diisi 15 → pegawai masuk jam 08:10 (10 menit terlambat) = KPI tetap 100%.</em><br>
+                            <em>Contoh: diisi 15 → pegawai masuk jam 08:20 (20 menit terlambat) = pengurangan dihitung dari 5 menit efektif.</em><br>
+                            <em>Default 0 = tidak ada toleransi.</em>
+                        </p>
                     </div>
                 </div>
             </div>
@@ -537,6 +562,8 @@ async function handleSaveSettings(btn) {
         data.append('kpi_izin_sakit', getValue('kpi-izin-sakit'));
         data.append('kpi_alpha', getValue('kpi-alpha'));
         data.append('kpi_overtime_bonus', getValue('kpi-overtime-bonus'));
+        data.append('kpi_late_max_deduction', getValue('kpi-late-max-deduction'));
+        data.append('kpi_late_tolerance', getValue('kpi-late-tolerance'));
         data.append('default_checkout_time', getValue('default-checkout-time'));
         data.append('max_daily_report_days_back', getValue('max-daily-report-days-back'));
         data.append('max_monthly_report_months_back', getValue('max-monthly-report-months-back'));
