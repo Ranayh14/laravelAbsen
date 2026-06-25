@@ -83,6 +83,7 @@ class ExportController extends Controller
             if (!isset($sheets[$uName])) {
                 $sheets[$uName] = [
                     'title' => 'LAPORAN BULANAN MAGANG - ' . strtoupper($uName),
+                    'widths' => [50, 200, 400, 200],
                     'rows' => []
                 ];
                 // Employee Info
@@ -107,7 +108,7 @@ class ExportController extends Controller
             // Achievements
             $sheets[$uName]['rows'][] = ['PENCAPAIAN DAN HASIL KERJA:', '', '', '', '_style' => 'sSubHeader'];
             $sheets[$uName]['rows'][] = ['No', 'Pencapaian', 'Detail', '', '_style' => 'sSubHeader'];
-            $achievements = json_decode($r->achievements, true);
+            $achievements = is_array($r->achievements) ? $r->achievements : json_decode($r->achievements, true);
             if (is_array($achievements) && !empty($achievements)) {
                 $no = 1;
                 foreach ($achievements as $ach) {
@@ -121,7 +122,7 @@ class ExportController extends Controller
             // Obstacles
             $sheets[$uName]['rows'][] = ['KENDALA:', '', '', '', '_style' => 'sSubHeader'];
             $sheets[$uName]['rows'][] = ['No', 'Kendala', 'Solusi', 'Catatan', '_style' => 'sSubHeader'];
-            $obstacles = json_decode($r->obstacles, true);
+            $obstacles = is_array($r->obstacles) ? $r->obstacles : json_decode($r->obstacles, true);
             if (is_array($obstacles) && !empty($obstacles)) {
                 $no = 1;
                 foreach ($obstacles as $obs) {
@@ -190,6 +191,7 @@ class ExportController extends Controller
         $sheets = [
             'KPI Summary' => [
                 'title' => 'Penilaian KPI Absen - ' . ($filterType === 'monthly' ? "Bulan $month Tahun $year" : "Seluruh Periode"),
+                'widths' => [40, 150, 80, 80, 60, 50, 70, 90, 70, 50, 60, 90, 60, 80],
                 'header' => ['No', 'Nama', 'Hari Kerja (T)', 'Hari Kerja (A)', 'Ontime', 'WFA', 'Terlambat', 'Menit Terlambat', 'Izin/Sakit', 'Alpha', 'Overtime', 'Laporan Kosong', 'Score', 'Status'],
                 'rows' => $rows
             ]
@@ -249,17 +251,38 @@ class ExportController extends Controller
         $m_names = ['', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
         $sheets = [];
         $header = ['Tanggal', 'NIM', 'Nama', 'Startup', 'Jam Masuk', 'Status', 'Jam Pulang', 'Keterangan', 'Laporan Harian'];
+        $widths = [80, 100, 150, 150, 80, 80, 80, 100, 400];
 
         if ($format === 'per_employee') {
+            $currentMonthTracking = [];
             foreach ($rows as $r) {
                 if (!$r->tanggal) continue;
+                
+                $rowMonth = date('Y-m', strtotime($r->tanggal));
+                
                 if (!isset($sheets[$r->nama])) {
                     $sheets[$r->nama] = [
                         'title' => "Laporan Presensi - " . $r->nama,
+                        'widths' => $widths,
                         'header' => $header,
                         'rows' => []
                     ];
+                    $currentMonthTracking[$r->nama] = null;
                 }
+                
+                if ($currentMonthTracking[$r->nama] !== $rowMonth) {
+                    $currentMonthTracking[$r->nama] = $rowMonth;
+                    $mObj = date_create_from_format('Y-m', $rowMonth);
+                    $mIndex = (int)$mObj->format('n');
+                    $mYear = $mObj->format('Y');
+                    $mName = $m_names[$mIndex] ?? $mObj->format('F');
+                    
+                    if (!empty($sheets[$r->nama]['rows'])) {
+                        $sheets[$r->nama]['rows'][] = [];
+                    }
+                    $sheets[$r->nama]['rows'][] = ['=== BULAN: ' . strtoupper($mName . ' ' . $mYear) . ' ===', '', '', '', '', '', '', '', '', '_style' => 'sHeader'];
+                }
+                
                 $sheets[$r->nama]['rows'][] = [
                     $r->tanggal, $r->nim, $r->nama, $r->startup,
                     $r->jam_masuk, $r->status_masuk, $r->jam_pulang,
@@ -270,6 +293,7 @@ class ExportController extends Controller
             $selectedMonthNames = array_map(function($m) use ($m_names) { return $m_names[$m] ?? $m; }, $monthsArr);
             $sheets['Combined'] = [
                 'title' => 'Data Presensi Lengkap - ' . ($filterType === 'monthly' ? "Bulan " . implode(', ', $selectedMonthNames) . " Tahun $year" : "Seluruh Periode"),
+                'widths' => $widths,
                 'header' => $header,
                 'rows' => []
             ];

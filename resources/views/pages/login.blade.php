@@ -20,7 +20,7 @@ if (isset($_SESSION['user'])) {
 
             <form id="form-login" class="space-y-5">
                 <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-1.5">Email / NIM</label>
+                    <label class="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
                     <div class="relative">
                         <span class="absolute left-4 top-3.5 text-slate-400"><i class="fi fi-sr-envelope"></i></span>
                         <input name="email" type="text" class="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium" placeholder="nama@email.com" required>

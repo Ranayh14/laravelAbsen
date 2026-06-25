@@ -41,6 +41,12 @@ class ExportService
 
             echo ' <Worksheet ss:Name="' . htmlspecialchars(substr($sheetName, 0, 31)) . '">' . "\n";
             echo '  <Table>' . "\n";
+            
+            if (!empty($content['widths'])) {
+                foreach ($content['widths'] as $w) {
+                    echo '   <Column ss:AutoFitWidth="0" ss:Width="' . htmlspecialchars($w) . '"/>' . "\n";
+                }
+            }
 
             // Add Title if exists
             if ($title) {

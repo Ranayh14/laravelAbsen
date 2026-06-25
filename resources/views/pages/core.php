@@ -3626,7 +3626,7 @@ function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = n
             $mEnd = min($periodEnd, $iter->format('Y-m-t'));
             
             $isFullMonth = ($mStart === $iter->format('Y-m-01') && $mEnd === $iter->format('Y-m-t'));
-            $isPastMonth = ($mYearMonthStr < $currentYearMonth);
+            $isPastMonth = false; // Disable cache for real-time KPI
             
             if ($isFullMonth && $isPastMonth) {
                 $cachedMonths[] = ['year' => $mYear, 'month' => $mMonth];
@@ -3890,7 +3890,7 @@ function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = n
                 $mEnd = min($periodEnd, $iter->format('Y-m-t'));
                 
                 $isFullMonth = ($mStart === $iter->format('Y-m-01') && $mEnd === $iter->format('Y-m-t'));
-                $isPastMonth = ($mYearMonthStr < $currentYearMonth);
+                $isPastMonth = false; // Disable cache for real-time KPI
                 
                 $isCacheable = ($isFullMonth && $isPastMonth);
                 $hasCache = isset($cachedMonthsFound[$mYear . '-' . $mMonth]);
