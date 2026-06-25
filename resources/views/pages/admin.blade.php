@@ -28,7 +28,7 @@
         </nav>
     </div>
     
-    <header class="bg-white/80 backdrop-blur-md fixed top-0 left-0 right-0 z-30 border-b border-gray-100">
+    <header class="bg-white/80 backdrop-blur-md sticky top-0 z-30 border-b border-gray-100">
         <div class="w-full px-4 lg:px-6 py-3 flex items-center justify-between">
             <div class="flex items-center gap-4">
                 <button id="mobile-menu-toggle" class="md:hidden p-2 hover:bg-gray-100 rounded-xl text-gray-600 transition-colors">
@@ -127,7 +127,7 @@
     </header>
 
     
-    <main class="w-full px-2 sm:px-4 lg:px-6 py-8 overflow-x-auto pt-32">
+    <main class="w-full px-2 sm:px-4 lg:px-6 py-8 overflow-x-auto">
         <style>
             .tab-link.active-tab {
                 background-color: #4f46e5 !important;
