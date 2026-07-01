@@ -12,9 +12,23 @@
                          <i class="fi fi-sr-arrow-small-left text-xl"></i>
                          <span class="font-medium">Kembali</span>
                      </button>
-                     <h2 class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600 tracking-tight">
-                         <?php echo ($_GET['page'] === 'presensi-masuk') ? 'Presensi Masuk' : 'Presensi Pulang'; ?>
-                     </h2>
+                     <div class="flex items-center gap-4">
+                         <h2 class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600 tracking-tight">
+                             <?php echo ($_GET['page'] === 'presensi-masuk') ? 'Presensi Masuk' : 'Presensi Pulang'; ?>
+                         </h2>
+                         <!-- Sound Setting -->
+                         <div class="relative group flex items-center justify-center">
+                             <button id="btn-mute-sound" class="w-10 h-10 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full transition-all relative">
+                                 <i id="icon-sound" class="fi fi-sr-volume"></i>
+                                 <!-- Mute slash line (hidden by default) -->
+                                 <div id="mute-slash" class="absolute w-[2px] h-6 bg-red-500 rotate-45 rounded-full hidden"></div>
+                             </button>
+                             <div class="absolute right-0 top-full mt-2 w-32 bg-white rounded-xl shadow-lg border border-gray-100 p-3 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                                 <p class="text-xs text-gray-500 font-semibold mb-2 text-center">Volume Suara</p>
+                                 <input type="range" id="sound-volume-slider" min="0" max="1" step="0.1" value="1" class="w-full accent-blue-600 cursor-pointer">
+                             </div>
+                         </div>
+                     </div>
                 </div>
     
                 <!-- Video Container -->
@@ -280,6 +294,10 @@
 <script src="assets/js/attendance.js"></script>
 
 <script>
+// Global volume setting initialization
+let savedVolume = localStorage.getItem('appVolume');
+window.appVolume = savedVolume !== null ? parseFloat(savedVolume) : 1.0;
+let isMuted = localStorage.getItem('appMuted') === 'true';
 
 document.addEventListener('DOMContentLoaded', () => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -305,5 +323,82 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('startScan function not found. Ensure attendance.js is loaded.');
         }
     }, 500);
+
+    // --- Sound Settings Logic ---
+    const btnMuteSound = document.getElementById('btn-mute-sound');
+    const iconSound = document.getElementById('icon-sound');
+    const muteSlash = document.getElementById('mute-slash');
+    const volumeSlider = document.getElementById('sound-volume-slider');
+    
+    // Set initial UI state based on saved values
+    if (volumeSlider) {
+        if (isMuted) {
+            window.appVolume = 0;
+            volumeSlider.value = 0;
+            muteSlash.classList.remove('hidden');
+        } else {
+            window.appVolume = localStorage.getItem('appVolume') !== null ? parseFloat(localStorage.getItem('appVolume')) : 1.0;
+            volumeSlider.value = window.appVolume;
+            muteSlash.classList.add('hidden');
+        }
+    }
+    
+    // Mute toggle on icon click
+    if (btnMuteSound) {
+        btnMuteSound.addEventListener('click', (e) => {
+            if (e.target === volumeSlider) return; 
+            
+            isMuted = !isMuted;
+            localStorage.setItem('appMuted', isMuted);
+            
+            if (isMuted) {
+                // Save current volume before muting if it's > 0
+                if (volumeSlider.value > 0) {
+                    localStorage.setItem('appVolumeBeforeMute', volumeSlider.value);
+                }
+                window.appVolume = 0;
+                volumeSlider.value = 0;
+                muteSlash.classList.remove('hidden');
+                if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+            } else {
+                let prevVol = parseFloat(localStorage.getItem('appVolumeBeforeMute'));
+                if (isNaN(prevVol) || prevVol === 0) prevVol = 1.0;
+                window.appVolume = prevVol;
+                volumeSlider.value = prevVol;
+                localStorage.setItem('appVolume', prevVol);
+                muteSlash.classList.add('hidden');
+                // Play a brief test sound when unmuted
+                if (typeof speak === 'function') speak('Suara diaktifkan');
+            }
+        });
+    }
+    
+    // Slider drag
+    if (volumeSlider) {
+        volumeSlider.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            window.appVolume = val;
+            localStorage.setItem('appVolume', val);
+            
+            if (val === 0) {
+                isMuted = true;
+                localStorage.setItem('appMuted', 'true');
+                muteSlash.classList.remove('hidden');
+                if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+            } else {
+                isMuted = false;
+                localStorage.setItem('appMuted', 'false');
+                muteSlash.classList.add('hidden');
+            }
+        });
+        
+        // Test sound when finished dragging
+        volumeSlider.addEventListener('change', (e) => {
+            const val = parseFloat(e.target.value);
+            if (val > 0 && typeof speak === 'function') {
+                speak('Volume tes');
+            }
+        });
+    }
 });
 </script>

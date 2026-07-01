@@ -199,7 +199,7 @@ window.speak = function(text, rate = 1.0) {
     setTimeout(() => {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.rate = rate;
-        utterance.volume = 1.0;
+        utterance.volume = window.appVolume !== undefined ? window.appVolume : 1.0;
 
         // Try to use Indonesian voice, fallback to first available
         const voices = window.speechSynthesis.getVoices();
@@ -798,7 +798,7 @@ function processSpeechQueue() {
             u.lang = 'id-ID';
             u.rate = 0.9; // Faster rate for speed
             u.pitch = 1.0;
-            u.volume = 1.0;
+            u.volume = window.appVolume !== undefined ? window.appVolume : 1.0;
 
             // Try to use a local voice if available
             const voices = speechSynthesis.getVoices();
@@ -8159,52 +8159,75 @@ function renderRekapData(data, m, y) {
         dataToShow = data.filter(row => getWeekNumberInMonth(new Date(row.date)) === selectedWeek);
     }
 
-    // --- Custom Cat Icon SVGs ---
-    const catDecor = `
-        <path d="M4 6L2 2L8 4" stroke="currentColor" fill="currentColor" stroke-width="1" stroke-linejoin="round" />
-        <path d="M20 6L22 2L16 4" stroke="currentColor" fill="currentColor" stroke-width="1" stroke-linejoin="round" />
-        <line x1="1" y1="12" x2="4" y2="13" stroke="currentColor" stroke-width="1" opacity="0.6" />
-        <line x1="1" y1="15" x2="4" y2="15" stroke="currentColor" stroke-width="1" opacity="0.6" />
-        <line x1="20" y1="13" x2="23" y2="12" stroke="currentColor" stroke-width="1" opacity="0.6" />
-        <line x1="20" y1="15" x2="23" y2="15" stroke="currentColor" stroke-width="1" opacity="0.6" />
-    `;
-
+    // --- Modern Formal SVG Emoji Icons (No Cat Ears) ---
     const icons = {
-        happy: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            ${catDecor}
-            <path d="M6 12c0-1 1-2 2-2s2 1 2 2" />
-            <path d="M14 12c0-1 1-2 2-2s2 1 2 2" />
-            <path d="M9 17s1.5 2 3 2 3-2 3-2" />
+        happy: `<svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="5" y="5" width="90" height="90" rx="30" fill="url(#lg-happy)"/>
+            <path d="M5 35C5 20 20 5 35 5H65C80 5 95 20 95 35C65 30 35 30 5 35Z" fill="white" fill-opacity="0.12"/>
+            <rect x="20" y="32" width="26" height="18" rx="6" fill="#0F172A"/>
+            <rect x="54" y="32" width="26" height="18" rx="6" fill="#0F172A"/>
+            <path d="M46 38H54" stroke="#0F172A" stroke-width="4" stroke-linecap="round"/>
+            <path d="M24 36H32" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+            <path d="M58 36H66" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+            <path d="M38 64C38 70.6 43.4 76 50 76C56.6 76 62 70.6 62 64" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+            <circle cx="16" cy="58" r="6" fill="#FFFFFF" fill-opacity="0.25"/>
+            <circle cx="84" cy="58" r="6" fill="#FFFFFF" fill-opacity="0.25"/>
         </svg>`,
-        sleeping: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            ${catDecor}
-            <path d="M6 13h3M15 13h3" />
-            <path d="M11 17c0 1 1 1 1 1s1 0 1-1" />
-            <path d="M12 15v1" stroke-width="1" />
+        sleeping: `<svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="5" y="5" width="90" height="90" rx="30" fill="url(#lg-sleeping)"/>
+            <path d="M5 35C5 20 20 5 35 5H65C80 5 95 20 95 35C65 30 35 30 5 35Z" fill="white" fill-opacity="0.12"/>
+            <path d="M22 45C25 41 31 41 34 45" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round"/>
+            <path d="M66 45C69 41 75 41 78 45" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round"/>
+            <path d="M42 62H58" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+            <path d="M78 16C75 16 71 18 70 21C70 24 72 27 75 27C78 27 80 25 80 22C80 18.5 78 16 78 16Z" fill="#FDE047" opacity="0.8"/>
         </svg>`,
-        energetic: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            ${catDecor}
-            <circle cx="7" cy="12" r="1.5" fill="currentColor" />
-            <circle cx="17" cy="12" r="1.5" fill="currentColor" />
-            <path d="M12 16c1.5 0 2.5 1 2.5 2.5S13.5 21 12 21s-2.5-1-2.5-2.5 1-2.5 1.5-2.5z" fill="currentColor" opacity="0.3" />
-            <path d="M10 16.5c0 0 .5-.5 2-.5s2 .5 2 .5" />
+        energetic: `<svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="5" y="5" width="90" height="90" rx="30" fill="url(#lg-energetic)"/>
+            <path d="M5 35C5 20 20 5 35 5H65C80 5 95 20 95 35C65 30 35 30 5 35Z" fill="white" fill-opacity="0.12"/>
+            <rect x="18" y="34" width="28" height="20" rx="6" stroke="#FFFFFF" stroke-width="4" fill="none"/>
+            <rect x="54" y="34" width="28" height="20" rx="6" stroke="#FFFFFF" stroke-width="4" fill="none"/>
+            <path d="M46 42H54" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+            <circle cx="32" cy="44" r="4.5" fill="#FFFFFF"/>
+            <circle cx="68" cy="44" r="4.5" fill="#FFFFFF"/>
+            <path d="M38 66C42 70 58 70 62 66" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round"/>
         </svg>`,
-        bored: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            ${catDecor}
-            <path d="M7 11h.01M17 11h.01" stroke-width="3" />
-            <path d="M9 17h6" />
-            <path d="M6 9l2 1M18 9l-2 1" />
+        bored: `<svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="5" y="5" width="90" height="90" rx="30" fill="url(#lg-bored)"/>
+            <path d="M5 35C5 20 20 5 35 5H65C80 5 95 20 95 35C65 30 35 30 5 35Z" fill="white" fill-opacity="0.12"/>
+            <path d="M22 46H36" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
+            <path d="M64 46H78" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
+            <circle cx="50" cy="66" r="7" stroke="#FFFFFF" stroke-width="4" fill="none"/>
         </svg>`,
-        unknown: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            ${catDecor}
-            <circle cx="12" cy="12" r="1" fill="currentColor" />
-            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-            <line x1="12" y1="17" x2="12.01" y2="17" />
+        unknown: `<svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="5" y="5" width="90" height="90" rx="30" fill="url(#lg-unknown)"/>
+            <path d="M5 35C5 20 20 5 35 5H65C80 5 95 20 95 35C65 30 35 30 5 35Z" fill="white" fill-opacity="0.12"/>
+            <text x="50" y="68" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="52" font-weight="900" fill="#FFFFFF">?</text>
         </svg>`,
-        future: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            ${catDecor}
-            <circle cx="12" cy="13" r="1" fill="currentColor" />
-            <path d="M12 7v6l3 2" />
+        wfa: `<svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="5" y="5" width="90" height="90" rx="30" fill="url(#lg-unknown)"/>
+            <path d="M5 35C5 20 20 5 35 5H65C80 5 95 20 95 35C65 30 35 30 5 35Z" fill="white" fill-opacity="0.12"/>
+            <path d="M14 44C14 24 28 16 50 16C72 16 86 24 86 44" stroke="#334155" stroke-width="5" stroke-linecap="round" fill="none"/>
+            <rect x="10" y="38" width="8" height="20" rx="4" fill="#334155"/>
+            <rect x="82" y="38" width="8" height="20" rx="4" fill="#334155"/>
+            <circle cx="34" cy="46" r="5" fill="#FFFFFF"/>
+            <circle cx="66" cy="46" r="5" fill="#FFFFFF"/>
+            <path d="M40 64C40 68 60 68 60 64" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+        </svg>`,
+        overtime: `<svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="5" y="5" width="90" height="90" rx="30" fill="url(#lg-overtime-side)"/>
+            <path d="M5 35C5 20 20 5 35 5H65C80 5 95 20 95 35C65 30 35 30 5 35Z" fill="white" fill-opacity="0.12"/>
+            <path d="M22 42L36 44" stroke="#FFFFFF" stroke-width="5.5" stroke-linecap="round"/>
+            <path d="M78 42L64 44" stroke="#FFFFFF" stroke-width="5.5" stroke-linecap="round"/>
+            <circle cx="29" cy="49" r="4" fill="#FFFFFF"/>
+            <circle cx="71" cy="49" r="4" fill="#FFFFFF"/>
+            <path d="M35 65C40 61 60 61 65 65" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+            <path d="M84 14L78 22H85L79 30" stroke="#FEF08A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>`,
+        future: `<svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="5" y="5" width="90" height="90" rx="30" fill="url(#lg-future)"/>
+            <path d="M5 35C5 20 20 5 35 5H65C80 5 95 20 95 35C65 30 35 30 5 35Z" fill="white" fill-opacity="0.12"/>
+            <circle cx="50" cy="50" r="22" stroke="white" stroke-width="4" fill="none" stroke-opacity="0.7"/>
+            <path d="M50 32V50L62 58" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.9"/>
         </svg>`
     };
 
@@ -8239,13 +8262,13 @@ function renderRekapData(data, m, y) {
                 stats.wfo++;
             } else if (ket === 'wfa') {
                 moodClass = 'mood-yellow';
-                icon = icons.energetic;
+                icon = icons.wfa;
                 bubbleText = 'WFA Chill!';
                 type = 'work';
                 stats.wfa++;
             } else if (ket === 'overtime') {
                 moodClass = 'mood-orange';
-                icon = icons.energetic;
+                icon = icons.overtime;
                 bubbleText = 'Overtime!';
                 type = 'work';
                 stats.overtime++;
@@ -8270,13 +8293,13 @@ function renderRekapData(data, m, y) {
             stats.wfo++;
         } else if (ket === 'wfa') {
             moodClass = 'mood-yellow';
-            icon = icons.energetic;
+            icon = icons.wfa;
             bubbleText = 'WFA Chill!';
             type = 'work';
             stats.wfa++;
         } else if (ket === 'overtime') {
             moodClass = 'mood-orange';
-            icon = icons.energetic;
+            icon = icons.overtime;
             bubbleText = 'Overtime!';
             type = 'work';
             stats.overtime++;
@@ -8753,13 +8776,34 @@ async function loadMissingDailyReports() {
         
         if (!shortcutDiv || !countSpan || !listDiv) return;
         
-        if (missingDates.length === 0) {
+        let count = missingDates.length;
+        
+        // --- Dynamic Robot Logic ---
+        const robotSenang = document.getElementById('robot-senang');
+        const robotSedih = document.getElementById('robot-sedih');
+        const robotMarah = document.getElementById('robot-marah');
+        
+        if (robotSenang && robotSedih && robotMarah) {
+            robotSenang.classList.add('hidden');
+            robotSedih.classList.add('hidden');
+            robotMarah.classList.add('hidden');
+            
+            if (count > 5) {
+                robotMarah.classList.remove('hidden');
+            } else if (count > 0 && count <= 5) {
+                robotSedih.classList.remove('hidden');
+            } else {
+                robotSenang.classList.remove('hidden');
+            }
+        }
+        
+        if (count === 0) {
             shortcutDiv.classList.add('hidden');
             return;
         }
         
         shortcutDiv.classList.remove('hidden');
-        countSpan.textContent = missingDates.length;
+        countSpan.textContent = count;
         
         // Format dates and create buttons
         listDiv.innerHTML = missingDates.map(date => {

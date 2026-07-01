@@ -872,7 +872,7 @@ function processSpeechQueue() {
             u.lang = 'id-ID';
             u.rate = 0.9; // Faster rate for speed
             u.pitch = 1.0;
-            u.volume = 1.0;
+            u.volume = window.appVolume !== undefined ? window.appVolume : 1.0;
 
             // Try to use a local voice if available
             const voices = speechSynthesis.getVoices();

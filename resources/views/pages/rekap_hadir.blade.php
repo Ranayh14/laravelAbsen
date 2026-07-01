@@ -1,3 +1,15 @@
+<!-- Hidden SVG Gradient Definitions for Modern Emoji Icons -->
+<svg width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true">
+  <defs>
+    <linearGradient id="lg-happy" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#38BDF8"/><stop offset="100%" stop-color="#0284C7"/></linearGradient>
+    <linearGradient id="lg-sleeping" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#C084FC"/><stop offset="100%" stop-color="#7E22CE"/></linearGradient>
+    <linearGradient id="lg-energetic" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#34D399"/><stop offset="100%" stop-color="#059669"/></linearGradient>
+    <linearGradient id="lg-bored" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#F87171"/><stop offset="100%" stop-color="#DC2626"/></linearGradient>
+    <linearGradient id="lg-unknown" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#FBBF24"/><stop offset="100%" stop-color="#D97706"/></linearGradient>
+    <linearGradient id="lg-future" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#94A3B8"/><stop offset="100%" stop-color="#64748B"/></linearGradient>
+    <linearGradient id="lg-overtime-side" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#FB923C"/><stop offset="100%" stop-color="#EA580C"/></linearGradient>
+  </defs>
+</svg>
 <div id="page-rekap" class="<?php echo isAdmin() ? 'hidden' : '';?> animate-fade-in-up">
     <div class="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-gray-100">
         <div class="flex items-center justify-between mb-6">
@@ -149,9 +161,9 @@
                 box-shadow: 0 8px 15px -3px rgba(0, 0, 0, 0.05);
             }
             .mood-button {
-                width: 60%;
+                width: 68%;
                 aspect-ratio: 1;
-                border-radius: 28%;
+                border-radius: 30%;
                 display: flex;
                 align-items: center;
                 justify-content: center;
@@ -161,14 +173,17 @@
                 cursor: pointer;
                 background: transparent;
                 padding: 0;
+                overflow: hidden;
             }
             .mood-button svg {
-                width: 70%;
-                height: 70%;
+                width: 100%;
+                height: 100%;
+                border-radius: 28%;
                 transition: transform 0.3s ease;
+                filter: drop-shadow(0 3px 6px rgba(0,0,0,0.12));
             }
             .mood-button:hover svg {
-                transform: scale(1.15) rotate(5deg);
+                transform: scale(1.1) rotate(3deg);
             }
             .mood-status-dot {
                 width: 25%;
@@ -224,15 +239,16 @@
                 margin-top: 8%;
             }
             
-            /* Updated Mood Colors */
-            .mood-blue-bright { background: #e0f2fe; color: #0ea5e9; } /* Ceria: Bright Blue */
-            .mood-purple-dark { background: #f3e8ff; color: #6b21a8; } /* Tidur: Dark Purple */
-            .mood-green { background: #f0fdf4; color: #22c55e; } /* Semangat / WFO */
-            .mood-yellow { background: #fefce8; color: #eab308; } /* WFA */
-            .mood-orange { background: #fff7ed; color: #f97316; } /* Overtime */
-            .mood-red { background: #fef2f2; color: #ef4444; } /* Bete / Alpha */
-            .mood-gray { background: #f1f5f9; color: #94a3b8; }
+            /* Updated Mood Colors - Subtle Glow for Modern SVG Emojis */
+            .mood-blue-bright { box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2); } /* Holi-yay: Sky Blue */
+            .mood-purple-dark { box-shadow: 0 0 0 3px rgba(192, 132, 252, 0.2); } /* On Leave: Purple */
+            .mood-green { box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.2); } /* WFO: Emerald */
+            .mood-yellow { box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.2); } /* WFA: Amber */
+            .mood-orange { box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.2); } /* Overtime: Orange */
+            .mood-red { box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.2); } /* Missing: Red */
+            .mood-gray { box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.15); } /* Gray/Future */
             .mood-today-empty { border: 2px dashed #cbd5e1; background: white; opacity: 0.8; }
+
 
             /* Responsive Adjustments */
             @media (max-width: 1024px) {
@@ -344,42 +360,106 @@
                     <h4 class="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Mood Summary</h4>
                     <div class="space-y-2">
                         <div class="stat-item">
-                            <div class="stat-icon mood-blue-bright"><i class="fi fi-sr-smile"></i></div>
+                            <div class="stat-icon" style="background:transparent;padding:0">
+                                <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+                                    <rect x="5" y="5" width="90" height="90" rx="30" fill="url(#lg-happy)"/>
+                                    <path d="M5 35C5 20 20 5 35 5H65C80 5 95 20 95 35C65 30 35 30 5 35Z" fill="white" fill-opacity="0.12"/>
+                                    <rect x="20" y="32" width="26" height="18" rx="6" fill="#0F172A"/>
+                                    <rect x="54" y="32" width="26" height="18" rx="6" fill="#0F172A"/>
+                                    <path d="M46 38H54" stroke="#0F172A" stroke-width="4" stroke-linecap="round"/>
+                                    <path d="M38 64C38 70.6 43.4 76 50 76C56.6 76 62 70.6 62 64" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+                                </svg>
+                            </div>
                             <div class="stat-info">
                                 <p class="stat-label">Holi-yay!</p>
                                 <p id="stat-happy-count" class="stat-value">0</p>
                             </div>
                         </div>
                         <div class="stat-item">
-                            <div class="stat-icon mood-purple-dark"><i class="fi fi-sr-moon"></i></div>
+                            <div class="stat-icon" style="background:transparent;padding:0">
+                                <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+                                    <rect x="5" y="5" width="90" height="90" rx="30" fill="url(#lg-sleeping)"/>
+                                    <path d="M5 35C5 20 20 5 35 5H65C80 5 95 20 95 35C65 30 35 30 5 35Z" fill="white" fill-opacity="0.12"/>
+                                    <path d="M22 45C25 41 31 41 34 45" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round"/>
+                                    <path d="M66 45C69 41 75 41 78 45" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round"/>
+                                    <path d="M42 62H58" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+                                    <path d="M78 16C75 16 71 18 70 21C70 24 72 27 75 27C78 27 80 25 80 22C80 18.5 78 16 78 16Z" fill="#FDE047" opacity="0.8"/>
+                                </svg>
+                            </div>
                             <div class="stat-info">
                                 <p class="stat-label">On Leave</p>
                                 <p id="stat-leave-count" class="stat-value">0</p>
                             </div>
                         </div>
                         <div class="stat-item">
-                            <div class="stat-icon mood-green"><i class="fi fi-sr-building"></i></div>
+                            <div class="stat-icon" style="background:transparent;padding:0">
+                                <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+                                    <rect x="5" y="5" width="90" height="90" rx="30" fill="url(#lg-energetic)"/>
+                                    <path d="M5 35C5 20 20 5 35 5H65C80 5 95 20 95 35C65 30 35 30 5 35Z" fill="white" fill-opacity="0.12"/>
+                                    <rect x="18" y="34" width="28" height="20" rx="6" stroke="#FFFFFF" stroke-width="4" fill="none"/>
+                                    <rect x="54" y="34" width="28" height="20" rx="6" stroke="#FFFFFF" stroke-width="4" fill="none"/>
+                                    <path d="M46 42H54" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+                                    <circle cx="32" cy="44" r="4.5" fill="#FFFFFF"/>
+                                    <circle cx="68" cy="44" r="4.5" fill="#FFFFFF"/>
+                                    <path d="M38 66C42 70 58 70 62 66" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round"/>
+                                </svg>
+                            </div>
                             <div class="stat-info">
                                 <p class="stat-label">WFO</p>
                                 <p id="stat-wfo-count" class="stat-value">0</p>
                             </div>
                         </div>
                         <div class="stat-item">
-                            <div class="stat-icon mood-yellow"><i class="fi fi-sr-home"></i></div>
+                            <div class="stat-icon" style="background:transparent;padding:0">
+                                <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+                                    <rect x="5" y="5" width="90" height="90" rx="30" fill="url(#lg-unknown)"/>
+                                    <path d="M5 35C5 20 20 5 35 5H65C80 5 95 20 95 35C65 30 35 30 5 35Z" fill="white" fill-opacity="0.12"/>
+                                    <!-- Headset arc -->
+                                    <path d="M14 44C14 24 28 16 50 16C72 16 86 24 86 44" stroke="#334155" stroke-width="5" stroke-linecap="round" fill="none"/>
+                                    <!-- Earcups -->
+                                    <rect x="10" y="38" width="8" height="20" rx="4" fill="#334155"/>
+                                    <rect x="82" y="38" width="8" height="20" rx="4" fill="#334155"/>
+                                    <!-- Eyes -->
+                                    <circle cx="34" cy="46" r="5" fill="#FFFFFF"/>
+                                    <circle cx="66" cy="46" r="5" fill="#FFFFFF"/>
+                                    <!-- Smile -->
+                                    <path d="M40 64C40 68 60 68 60 64" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+                                </svg>
+                            </div>
                             <div class="stat-info">
                                 <p class="stat-label">WFA</p>
                                 <p id="stat-wfa-count" class="stat-value">0</p>
                             </div>
                         </div>
                         <div class="stat-item">
-                            <div class="stat-icon mood-orange"><i class="fi fi-sr-bolt"></i></div>
+                            <div class="stat-icon" style="background:transparent;padding:0">
+                                <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+                                    <defs><linearGradient id="lg-overtime-side" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#FB923C"/><stop offset="100%" stop-color="#EA580C"/></linearGradient></defs>
+                                    <rect x="5" y="5" width="90" height="90" rx="30" fill="url(#lg-overtime-side)"/>
+                                    <path d="M5 35C5 20 20 5 35 5H65C80 5 95 20 95 35C65 30 35 30 5 35Z" fill="white" fill-opacity="0.12"/>
+                                    <path d="M22 42L36 44" stroke="#FFFFFF" stroke-width="5.5" stroke-linecap="round"/>
+                                    <path d="M78 42L64 44" stroke="#FFFFFF" stroke-width="5.5" stroke-linecap="round"/>
+                                    <circle cx="29" cy="49" r="4" fill="#FFFFFF"/>
+                                    <circle cx="71" cy="49" r="4" fill="#FFFFFF"/>
+                                    <path d="M35 65C40 61 60 61 65 65" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+                                    <path d="M84 14L78 22H85L79 30" stroke="#FEF08A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                                </svg>
+                            </div>
                             <div class="stat-info">
                                 <p class="stat-label">Overtime</p>
                                 <p id="stat-overtime-count" class="stat-value">0</p>
                             </div>
                         </div>
                         <div class="stat-item">
-                            <div class="stat-icon mood-red"><i class="fi fi-sr-angry"></i></div>
+                            <div class="stat-icon" style="background:transparent;padding:0">
+                                <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+                                    <rect x="5" y="5" width="90" height="90" rx="30" fill="url(#lg-bored)"/>
+                                    <path d="M5 35C5 20 20 5 35 5H65C80 5 95 20 95 35C65 30 35 30 5 35Z" fill="white" fill-opacity="0.12"/>
+                                    <path d="M22 46H36" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
+                                    <path d="M64 46H78" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
+                                    <circle cx="50" cy="66" r="7" stroke="#FFFFFF" stroke-width="4" fill="none"/>
+                                </svg>
+                            </div>
                             <div class="stat-info">
                                 <p class="stat-label">Missing</p>
                                 <p id="stat-alpha-count" class="stat-value">0</p>

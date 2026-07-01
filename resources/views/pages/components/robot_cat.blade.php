@@ -1,6 +1,7 @@
 <?php
 /**
- * Robot Cat Hero Banner Component for Pegawai Dashboard
+ * Modern Animated Robot Hero Banner Component for Pegawai Dashboard
+ * Replaces the old cat robot with a clean, professional robot character.
  */
 ?>
 <!-- Hero Banner for Pegawai -->
@@ -31,125 +32,163 @@
             </div>
         </div>
         
-        <!-- SVG Robot Cat Character -->
-        <div class="relative w-24 h-24 md:w-28 md:h-28 flex items-center justify-center flex-shrink-0">
+        <!-- Modern Animated Robot (No Cat Ears) -->
+        <div class="relative w-24 h-24 md:w-32 md:h-32 flex items-center justify-center flex-shrink-0">
             <div class="w-full h-full bg-gradient-to-tr from-blue-400/20 to-indigo-400/20 backdrop-blur-sm rounded-2xl absolute border border-white/20"></div>
-            <div id="robot-cat-character" class="relative z-10 w-full h-full emotion-happy">
-                <svg viewBox="0 0 400 400" width="100%" height="100%">
-                    <!-- DEFINITIONS -->
+            <div id="robot-container" class="relative z-10 w-full h-full">
+                <!-- ================== ROBOT SENANG (Default) ================== -->
+                <svg id="robot-senang" viewBox="0 0 120 120" width="100%" height="100%" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Robot Senang">
                     <defs>
-                        <linearGradient id="metalGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                            <stop offset="0%" style="stop-color:#f8fafc;stop-opacity:1" />
-                            <stop offset="100%" style="stop-color:#94a3b8;stop-opacity:1" />
+                        <linearGradient id="robotBodyHero" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#F8FAFC" />
+                            <stop offset="100%" stop-color="#E2E8F0" />
                         </linearGradient>
-                        <symbol id="heart-shape" viewBox="0 0 32 32">
-                            <path d="M16 28.5L14.1 26.8C7.3 20.6 2.8 16.5 2.8 11.5C2.8 7.4 6 4.2 10.1 4.2C12.4 4.2 14.6 5.3 16 7C17.4 5.3 19.6 4.2 21.9 4.2C26 4.2 29.2 7.4 29.2 11.5C29.2 16.5 24.7 20.6 17.9 26.8L16 28.5Z" />
-                        </symbol>
+                        <linearGradient id="robotScreenHero" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" stop-color="#0F172A" />
+                            <stop offset="100%" stop-color="#020617" />
+                        </linearGradient>
+                        <filter id="heroHeartGlow" x="-25%" y="-25%" width="150%" height="150%">
+                            <feDropShadow dx="0" dy="0" stdDeviation="3.5" flood-color="#EC4899" flood-opacity="0.8" />
+                        </filter>
+                        <filter id="heroCyanGlow" x="-20%" y="-20%" width="140%" height="140%">
+                            <feGaussianBlur stdDeviation="2" result="blur" />
+                            <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                        </filter>
                     </defs>
 
-                    <!-- SHADOW -->
-                    <ellipse cx="200" cy="370" rx="90" ry="12" fill="rgba(0,0,0,0.15)" />
+                    <style>
+                        @keyframes heroRobotFloat {
+                            0%, 100% { transform: translateY(0) rotate(0deg); }
+                            50% { transform: translateY(-3.5px) rotate(0.8deg); }
+                        }
+                        @keyframes heroHeartRise1 {
+                            0% { transform: translateY(15px) translateX(0) scale(0.6); opacity: 0; }
+                            25% { opacity: 0.9; }
+                            100% { transform: translateY(-40px) translateX(10px) scale(1.1); opacity: 0; }
+                        }
+                        @keyframes heroHeartRise2 {
+                            0% { transform: translateY(15px) translateX(0) scale(0.6); opacity: 0; }
+                            25% { opacity: 0.9; }
+                            100% { transform: translateY(-35px) translateX(-12px) scale(1.05); opacity: 0; }
+                        }
+                        .hero-robot-float { animation: heroRobotFloat 2.5s infinite ease-in-out; transform-origin: center bottom; }
+                        .hero-heart-1 { animation: heroHeartRise1 2.8s infinite linear; transform-origin: center; }
+                        .hero-heart-2 { animation: heroHeartRise2 3.2s infinite linear 1s; transform-origin: center; }
+                    </style>
 
-                    <!-- === EKOR (DI BELAKANG BADAN) === -->
-                    <!-- Ekor Happy -->
-                    <g id="tail-happy-state">
-                        <g id="tail-happy-group">
-                            <path d="M260 250 Q350 240 340 160" fill="none" stroke="url(#metalGrad)" stroke-width="14" stroke-linecap="round" />
-                            <use href="#heart-shape" x="325" y="125" width="30" height="30" fill="url(#metalGrad)" transform="rotate(-15, 340, 140)" />
-                        </g>
+                    <g class="hero-heart-1" filter="url(#heroHeartGlow)">
+                        <path d="M15 35 C15 31, 21 31, 21 35 C21 39, 15 43, 15 43 C15 43, 9 39, 9 35 C9 31, 15 31, 15 35 Z" fill="#EC4899" />
+                    </g>
+                    <g class="hero-heart-2" filter="url(#heroHeartGlow)">
+                        <path d="M104 25 C104 21, 110 21, 110 25 C110 29, 104 33, 104 33 C104 33, 98 29, 98 25 C98 21, 104 21, 104 25 Z" fill="#F43F5E" />
                     </g>
 
-                    <!-- Ekor Sad -->
-                    <g id="tail-sad-state" class="hidden">
-                        <path d="M260 250 Q310 260 330 350" fill="none" stroke="url(#metalGrad)" stroke-width="14" stroke-linecap="round" />
-                    </g>
-
-                    <!-- Ekor Angry -->
-                    <g id="tail-angry-state" class="hidden">
-                        <path id="tail-angry-v3" d="M260 250 L290 220 L310 260 L330 210 L350 250 L370 180" fill="none" stroke="url(#metalGrad)" stroke-width="12" stroke-linecap="round" />
-                    </g>
-
-                    <!-- === TUBUH === -->
-                    <g id="cat-body">
-                        <!-- Kaki Belakang -->
-                        <rect x="235" y="290" width="32" height="75" rx="16" fill="#64748b" stroke="#1e293b" stroke-width="3"/>
-                        <rect x="135" y="290" width="32" height="75" rx="16" fill="#64748b" stroke="#1e293b" stroke-width="3"/>
+                    <g class="hero-robot-float">
+                        <ellipse cx="60" cy="112" rx="22" ry="5" fill="#020617" fill-opacity="0.15" />
+                        <rect x="44" y="94" width="10" height="14" rx="5" fill="#E2E8F0" stroke="#64748B" stroke-width="3" />
+                        <rect x="66" y="94" width="10" height="14" rx="5" fill="#E2E8F0" stroke="#64748B" stroke-width="3" />
+                        <rect x="36" y="68" width="48" height="30" rx="10" fill="#FFFFFF" stroke="#64748B" stroke-width="3" />
+                        <path d="M60 77 C60 75, 64 75, 64 77 C64 80, 60 83, 60 83 C60 83, 56 80, 56 77 C56 75, 60 75, 60 77 Z" fill="#EC4899" />
+                        <rect x="54" y="62" width="12" height="8" fill="#F1F5F9" stroke="#64748B" stroke-width="3" />
+                        <rect x="28" y="24" width="64" height="42" rx="14" fill="#FFFFFF" stroke="#64748B" stroke-width="3.5" />
+                        <rect x="34" y="30" width="52" height="30" rx="8" fill="#0F172A" stroke="#64748B" stroke-width="2.5" />
                         
-                        <!-- Kaki Depan -->
-                        <rect x="210" y="300" width="38" height="70" rx="19" fill="url(#metalGrad)" stroke="#1e293b" stroke-width="4"/>
-                        <rect x="150" y="300" width="38" height="70" rx="19" fill="url(#metalGrad)" stroke="#1e293b" stroke-width="4"/>
+                        <path d="M47 43C47 47 39 47 39 43" stroke="#06B6D4" stroke-width="4" stroke-linecap="round" filter="url(#heroCyanGlow)" />
+                        <path d="M81 43C81 47 73 47 73 43" stroke="#06B6D4" stroke-width="4" stroke-linecap="round" filter="url(#heroCyanGlow)" />
                         
-                        <!-- Baut kaki -->
-                        <circle cx="230" cy="315" r="3" fill="#1e293b" opacity="0.4"/>
-                        <circle cx="170" cy="315" r="3" fill="#1e293b" opacity="0.4"/>
-
-                        <!-- Badan Utama -->
-                        <path d="M120 210 Q120 170 200 170 Q280 170 280 210 L280 300 Q280 330 200 330 Q120 330 120 300 Z" fill="url(#metalGrad)" stroke="#1e293b" stroke-width="4"/>
-                        
-                        <!-- Detail Panel -->
-                        <path d="M135 230 L265 230" stroke="#1e293b" stroke-width="1" opacity="0.2"/>
-                        <circle cx="260" cy="250" r="15" fill="#1e293b" opacity="0.1"/>
-                        <circle cx="260" cy="250" r="8" fill="var(--glow-cyan)" class="glow-cyan" id="body-light"/>
+                        <line x1="60" y1="24" x2="60" y2="13" stroke="#94A3B8" stroke-width="3" />
+                        <path d="M60 11 C60 9, 63 9, 63 11 C63 13, 60 15, 60 15 C60 15, 57 13, 57 11 C57 9, 60 9, 60 11 Z" fill="#EC4899" filter="url(#heroHeartGlow)" />
                     </g>
+                </svg>
 
-                    <!-- === KEPALA === -->
-                    <!-- Happy Head -->
-                    <g id="head-happy-state">
-                        <!-- Floating Hearts -->
-                        <use href="#heart-shape" x="80" y="80" width="25" height="25" fill="#00f2ff" class="floating-heart" style="animation-delay: 0s" />
-                        <use href="#heart-shape" x="290" y="100" width="20" height="20" fill="#00f2ff" class="floating-heart" style="animation-delay: 0.7s" />
+                <!-- ================== ROBOT SEDIH ================== -->
+                <svg id="robot-sedih" class="hidden" viewBox="0 0 120 120" width="100%" height="100%" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Robot Sedih">
+                    <style>
+                        @keyframes heroRobotDroop {
+                            0%, 100% { transform: translateY(4px) rotate(0deg); }
+                            50% { transform: translateY(6px) rotate(0.5deg); }
+                        }
+                        @keyframes heroTearDrop {
+                            0% { transform: translateY(0); opacity: 0.8; }
+                            50% { transform: translateY(15px); opacity: 1; }
+                            100% { transform: translateY(25px); opacity: 0; }
+                        }
+                        .hero-robot-droop { animation: heroRobotDroop 3s infinite ease-in-out; transform-origin: center bottom; }
+                        .hero-tear { animation: heroTearDrop 2.5s infinite ease-in; }
+                    </style>
+
+                    <g class="hero-robot-droop">
+                        <ellipse cx="60" cy="112" rx="22" ry="5" fill="#020617" fill-opacity="0.15" />
+                        <rect x="44" y="94" width="10" height="14" rx="5" fill="#E2E8F0" stroke="#64748B" stroke-width="3" />
+                        <rect x="66" y="94" width="10" height="14" rx="5" fill="#E2E8F0" stroke="#64748B" stroke-width="3" />
+                        <rect x="36" y="68" width="48" height="30" rx="10" fill="#FFFFFF" stroke="#64748B" stroke-width="3" />
+                        <path d="M60 77 C60 75, 64 75, 64 77 C64 80, 60 83, 60 83 C60 83, 56 80, 56 77 C56 75, 60 75, 60 77 Z" fill="#94A3B8" opacity="0.6"/> <!-- Grey heart -->
+                        <rect x="54" y="62" width="12" height="8" fill="#F1F5F9" stroke="#64748B" stroke-width="3" />
                         
-                        <g id="head-base">
-                            <path d="M100 140 Q100 90 180 90 Q260 90 260 140 L260 195 Q260 235 180 235 Q100 235 100 195 Z" fill="url(#metalGrad)" stroke="#1e293b" stroke-width="5"/>
-                            <!-- Telinga -->
-                            <path d="M125 105 L95 45 L165 95 Z" fill="url(#metalGrad)" stroke="#1e293b" stroke-width="4"/>
-                            <path d="M235 105 L265 45 L195 95 Z" fill="url(#metalGrad)" stroke="#1e293b" stroke-width="4"/>
-                            <!-- Visor -->
-                            <rect x="120" y="130" width="120" height="75" rx="37" fill="#1e293b"/>
-                            <!-- Eyes Happy -->
-                            <path d="M140 165 Q155 145 170 165" fill="none" stroke="var(--glow-cyan)" stroke-width="6" stroke-linecap="round" class="glow-cyan"/>
-                            <path d="M190 165 Q205 145 220 165" fill="none" stroke="var(--glow-cyan)" stroke-width="6" stroke-linecap="round" class="glow-cyan"/>
-                        </g>
-                    </g>
-
-                    <!-- Sad Head -->
-                    <g id="head-sad-state" class="hidden">
-                        <g id="head-sad-v3">
-                            <path d="M100 140 Q100 90 180 90 Q260 90 260 140 L260 195 Q260 235 180 235 Q100 235 100 195 Z" fill="url(#metalGrad)" stroke="#1e293b" stroke-width="5"/>
-                            <!-- Telinga Animated -->
-                            <path id="ear-l-sad" d="M125 105 L85 125 L155 120 Z" fill="url(#metalGrad)" stroke="#1e293b" stroke-width="4"/>
-                            <path id="ear-r-sad" d="M235 105 L275 125 L205 120 Z" fill="url(#metalGrad)" stroke="#1e293b" stroke-width="4"/>
-                            <!-- Visor -->
-                            <rect x="120" y="130" width="120" height="75" rx="37" fill="#1e293b"/>
-                            <!-- Eyes Sad -->
-                            <path d="M145 175 Q155 160 165 175" fill="none" stroke="var(--glow-cyan)" stroke-width="5" stroke-linecap="round" opacity="0.5"/>
-                            <path d="M195 175 Q205 160 215 175" fill="none" stroke="var(--glow-cyan)" stroke-width="5" stroke-linecap="round" opacity="0.5"/>
-                            <!-- Tears -->
-                            <circle cx="155" cy="185" r="3" fill="var(--glow-cyan)" opacity="0.8">
-                                <animate attributeName="cy" from="185" to="210" dur="2s" repeatCount="indefinite" />
-                                <animate attributeName="opacity" from="0.8" to="0" dur="2s" repeatCount="indefinite" />
-                            </circle>
-                        </g>
-                    </g>
-
-                    <!-- Angry Head -->
-                    <g id="head-angry-state" class="hidden">
-                        <!-- Smoke -->
-                        <circle cx="110" cy="60" r="12" fill="#cbd5e1" class="smoke-puff" />
-                        <circle cx="250" cy="50" r="10" fill="#cbd5e1" class="smoke-puff" style="animation-delay: 0.8s"/>
+                        <rect x="28" y="26" width="64" height="42" rx="14" fill="#FFFFFF" stroke="#64748B" stroke-width="3.5" /> <!-- Head slightly lower -->
+                        <rect x="34" y="32" width="52" height="30" rx="8" fill="#0F172A" stroke="#64748B" stroke-width="2.5" />
                         
-                        <g id="head-angry-v3">
-                            <path d="M100 140 Q100 90 180 90 Q260 90 260 140 L260 195 Q260 235 180 235 Q100 235 100 195 Z" fill="url(#metalGrad)" stroke="#1e293b" stroke-width="5"/>
-                            <path d="M125 105 L95 45 L165 95 Z" fill="url(#metalGrad)" stroke="#1e293b" stroke-width="4"/>
-                            <path d="M235 105 L265 45 L195 95 Z" fill="url(#metalGrad)" stroke="#1e293b" stroke-width="4"/>
-                            <!-- Visor -->
-                            <rect x="120" y="130" width="120" height="75" rx="37" fill="#1e293b"/>
-                            <!-- Eyes Angry (Red) -->
-                            <path d="M140 170 L170 155" fill="none" stroke="var(--glow-red)" stroke-width="8" stroke-linecap="round" class="glow-red"/>
-                            <path d="M190 155 L220 170" fill="none" stroke="var(--glow-red)" stroke-width="8" stroke-linecap="round" class="glow-red"/>
-                            <!-- Electric Spark -->
-                            <path d="M175 80 L185 60 L195 75" fill="none" stroke="#fbbf24" stroke-width="3" class="glow-cyan"/>
-                        </g>
+                        <!-- Sad eyes -->
+                        <path d="M39 46L47 41" stroke="#06B6D4" stroke-width="3.5" stroke-linecap="round" filter="url(#heroCyanGlow)" opacity="0.6" />
+                        <path d="M81 46L73 41" stroke="#06B6D4" stroke-width="3.5" stroke-linecap="round" filter="url(#heroCyanGlow)" opacity="0.6" />
+                        
+                        <!-- Tear -->
+                        <circle cx="43" cy="49" r="2.5" fill="#06B6D4" filter="url(#heroCyanGlow)" class="hero-tear" />
+                        <circle cx="77" cy="49" r="2.5" fill="#06B6D4" filter="url(#heroCyanGlow)" class="hero-tear" style="animation-delay: 1.2s;" />
+                        
+                        <!-- Drooping antenna -->
+                        <path d="M60 26 Q60 18 53 14" fill="none" stroke="#94A3B8" stroke-width="3" stroke-linecap="round" />
+                        <circle cx="51" cy="14" r="3" fill="#94A3B8" />
+                    </g>
+                </svg>
+
+                <!-- ================== ROBOT MARAH ================== -->
+                <svg id="robot-marah" class="hidden" viewBox="0 0 120 120" width="100%" height="100%" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Robot Marah">
+                    <defs>
+                        <filter id="heroRedGlow" x="-20%" y="-20%" width="140%" height="140%">
+                            <feGaussianBlur stdDeviation="2" result="blur" />
+                            <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                        </filter>
+                    </defs>
+                    <style>
+                        @keyframes heroRobotShake {
+                            0%, 100% { transform: translateX(0); }
+                            10%, 30%, 50%, 70%, 90% { transform: translateX(-2px) rotate(-1deg); }
+                            20%, 40%, 60%, 80% { transform: translateX(2px) rotate(1deg); }
+                        }
+                        @keyframes heroSmoke {
+                            0% { transform: translateY(0) scale(0.5); opacity: 0.8; }
+                            100% { transform: translateY(-15px) scale(1.5); opacity: 0; }
+                        }
+                        .hero-robot-shake { animation: heroRobotShake 0.5s infinite; transform-origin: center; }
+                        .hero-smoke-1 { animation: heroSmoke 1.5s infinite linear; }
+                        .hero-smoke-2 { animation: heroSmoke 1.2s infinite linear 0.5s; }
+                    </style>
+
+                    <!-- Smoke puffs -->
+                    <circle cx="30" cy="20" r="5" fill="#94A3B8" class="hero-smoke-1" />
+                    <circle cx="90" cy="25" r="4" fill="#94A3B8" class="hero-smoke-2" />
+
+                    <g class="hero-robot-shake">
+                        <ellipse cx="60" cy="112" rx="22" ry="5" fill="#020617" fill-opacity="0.15" />
+                        <rect x="44" y="94" width="10" height="14" rx="5" fill="#E2E8F0" stroke="#64748B" stroke-width="3" />
+                        <rect x="66" y="94" width="10" height="14" rx="5" fill="#E2E8F0" stroke="#64748B" stroke-width="3" />
+                        <rect x="36" y="68" width="48" height="30" rx="10" fill="#FFFFFF" stroke="#64748B" stroke-width="3" />
+                        
+                        <!-- Crack on chest -->
+                        <path d="M55 75 L60 82 L58 88 L65 92" stroke="#64748B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        
+                        <rect x="54" y="62" width="12" height="8" fill="#F1F5F9" stroke="#64748B" stroke-width="3" />
+                        
+                        <rect x="28" y="24" width="64" height="42" rx="14" fill="#FFFFFF" stroke="#64748B" stroke-width="3.5" />
+                        <rect x="34" y="30" width="52" height="30" rx="8" fill="#0F172A" stroke="#64748B" stroke-width="2.5" />
+                        
+                        <!-- Angry eyes (red) -->
+                        <path d="M38 41L49 46" stroke="#EF4444" stroke-width="4" stroke-linecap="round" filter="url(#heroRedGlow)" />
+                        <path d="M82 41L71 46" stroke="#EF4444" stroke-width="4" stroke-linecap="round" filter="url(#heroRedGlow)" />
+                        
+                        <!-- Angry antenna -->
+                        <path d="M60 24 L57 18 L63 12 L60 7" fill="none" stroke="#EF4444" stroke-width="3" stroke-linejoin="round" filter="url(#heroRedGlow)" />
                     </g>
                 </svg>
             </div>
