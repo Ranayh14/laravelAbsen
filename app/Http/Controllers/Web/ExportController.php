@@ -201,6 +201,73 @@ class ExportController extends Controller
     }
 
     /**
+     * Export KPI untuk kelompok magang tertentu
+     */
+    public function exportKpiGroup(Request $request)
+    {
+        if (!isset($_SESSION['user']) || $_SESSION['user']['role'] !== 'admin') {
+            return abort(403, 'Forbidden');
+        }
+
+        $groupId = (int)$request->query('group_id');
+        if (!$groupId) {
+            return redirect()->back()->with('error', 'group_id wajib');
+        }
+
+        $pdo = getPdo();
+
+        // Ambil info kelompok
+        $grpStmt = $pdo->prepare("SELECT * FROM intern_groups WHERE id=:id LIMIT 1");
+        $grpStmt->execute([':id' => $groupId]);
+        $group = $grpStmt->fetch();
+        if (!$group) {
+            return redirect()->back()->with('error', 'Kelompok tidak ditemukan');
+        }
+
+        // Gunakan tanggal_selesai kelompok sebagai period end
+        $periodStart = $group['tanggal_mulai'];
+        $periodEnd = $group['tanggal_selesai'];
+
+        $data = getAllKPIData($pdo, $periodStart, $periodEnd, false, $groupId);
+        if (!$data || empty($data['kpi_data'])) {
+            return redirect()->back()->with('error', 'Tidak ada data KPI untuk kelompok ini');
+        }
+
+        $rows = [];
+        $no = 1;
+        foreach ($data['kpi_data'] as $row) {
+            $rows[] = [
+                $no++,
+                $row['nama'],
+                $row['total_working_days'],
+                $row['actual_working_days'],
+                $row['ontime_count'],
+                $row['wfa_count'] ?? 0,
+                $row['late_count'],
+                $row['total_late_minutes'],
+                $row['izin_sakit_count'],
+                $row['alpha_count'],
+                $row['overtime_count'],
+                $row['missing_daily_reports_count'] ?? 0,
+                $row['kpi_score'],
+                $row['status']
+            ];
+        }
+
+        $sheets = [
+            'KPI ' . $group['nama'] => [
+                'title' => 'Penilaian KPI - ' . $group['nama'] . ' (' . $periodStart . ' s/d ' . $periodEnd . ')',
+                'widths' => [40, 150, 80, 80, 60, 50, 70, 90, 70, 50, 60, 90, 60, 80],
+                'header' => ['No', 'Nama', 'Hari Kerja (T)', 'Hari Kerja (A)', 'Ontime', 'WFA', 'Terlambat', 'Menit Terlambat', 'Izin/Sakit', 'Alpha', 'Overtime', 'Laporan Kosong', 'Score', 'Status'],
+                'rows' => $rows
+            ]
+        ];
+
+        $filename = 'export_kpi_' . preg_replace('/[^a-zA-Z0-9]/', '_', $group['nama']) . '_' . date('Y-m-d');
+        return $this->exportService->exportToExcelXML($filename, $sheets);
+    }
+
+    /**
      * Export Daily Attendance
      */
     public function exportDaily(Request $request)

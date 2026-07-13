@@ -12,6 +12,7 @@ use App\Http\Controllers\Web\ExportController;
 // Export Routes
 Route::prefix('export')->group(function () {
     Route::get('/kpi', [ExportController::class, 'exportKpi'])->name('export.kpi');
+    Route::get('/kpi-group', [ExportController::class, 'exportKpiGroup'])->name('export.kpi.group');
     Route::get('/daily', [ExportController::class, 'exportDaily'])->name('export.daily');
     Route::get('/monthly', [ExportController::class, 'exportMonthly'])->name('export.monthly');
 });

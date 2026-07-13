@@ -508,6 +508,41 @@ function ensureSchema(PDO $pdo): void {
             error_log("Failed to create trigger $name: " . $e->getMessage());
         }
     }
+
+    // Intern groups table — untuk pengelompokan pegawai per periode magang
+    try {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS intern_groups (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                nama VARCHAR(255) NOT NULL,
+                tanggal_mulai DATE NOT NULL,
+                tanggal_selesai DATE NOT NULL,
+                is_archived TINYINT(1) NOT NULL DEFAULT 0,
+                archived_at DATETIME NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+    } catch (PDOException $e) {
+        error_log("Failed to create intern_groups table: " . $e->getMessage());
+    }
+
+    // Intern group members table — pivot many-to-many antara kelompok dan pegawai
+    try {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS intern_group_members (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                group_id INT NOT NULL,
+                user_id INT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY unique_group_user (group_id, user_id),
+                CONSTRAINT fk_igm_group FOREIGN KEY (group_id) REFERENCES intern_groups(id) ON DELETE CASCADE,
+                CONSTRAINT fk_igm_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+    } catch (PDOException $e) {
+        error_log("Failed to create intern_group_members table: " . $e->getMessage());
+    }
 }
 
 function verifyAttendanceTable(PDO $pdo): bool {
@@ -1338,7 +1373,7 @@ try {
     
     // PERFORMANCE FIX: Guard expensive boot queries with session flags.
     // Previously these ran on EVERY page load, causing significant DB overhead.
-    $bootDoneKey = '_app_boot_done_v3';
+    $bootDoneKey = '_app_boot_done_v4'; // bumped to v4: adds intern_groups auto-create
     $needsBoot = empty($_SESSION[$bootDoneKey]);
 
     if ($needsBoot) {
@@ -1350,6 +1385,38 @@ try {
             }
         } catch (Exception $e) {
             error_log("Failed to check or auto-initialize kpi_monthly_cache: " . $e->getMessage());
+        }
+
+        // Auto-create intern_groups tables if they don't exist (added in v2)
+        try {
+            $checkInternGroups = $pdo->query("SHOW TABLES LIKE 'intern_groups'");
+            if ($checkInternGroups->rowCount() == 0) {
+                $pdo->exec("
+                    CREATE TABLE IF NOT EXISTS intern_groups (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        nama VARCHAR(255) NOT NULL,
+                        tanggal_mulai DATE NOT NULL,
+                        tanggal_selesai DATE NOT NULL,
+                        is_archived TINYINT(1) NOT NULL DEFAULT 0,
+                        archived_at DATETIME NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                ");
+                $pdo->exec("
+                    CREATE TABLE IF NOT EXISTS intern_group_members (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        group_id INT NOT NULL,
+                        user_id INT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE KEY unique_group_user (group_id, user_id),
+                        CONSTRAINT fk_igm_group FOREIGN KEY (group_id) REFERENCES intern_groups(id) ON DELETE CASCADE,
+                        CONSTRAINT fk_igm_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                ");
+            }
+        } catch (Exception $e) {
+            error_log("Failed to auto-initialize intern_groups tables: " . $e->getMessage());
         }
         
         // Seed national holidays once per session
@@ -3589,15 +3656,81 @@ function getEmployeeRegistrationDate(PDO $pdo, $userId) {
     }
 }
 
-function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = null, $includePhotos = false) {
+function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = null, $includePhotos = false, $filterGroupId = null) {
     try {
         $periodStart = $customPeriodStart ?? getEarliestEmployeeRegistrationDate($pdo);
         $periodEnd = $customPeriodEnd ?? date('Y-m-d');
         
+        // --- Build archived user set & per-user period override from intern_groups ---
+        $archivedUserIds   = [];      // user_id => true  (semua kelompok archived, tidak ada yg aktif)
+        $userHasActiveGroup = [];     // user_id => true  (punya kelompok non-archived)
+        $userPeriodStartOverride = []; // user_id => earliest tanggal_mulai dari kelompok aktif
+        $userPeriodEndOverride   = []; // user_id => latest  tanggal_selesai dari kelompok yang sudah selesai
+        try {
+            $groupStmt = $pdo->query("
+                SELECT igm.user_id, ig.id as group_id, ig.is_archived, ig.tanggal_mulai, ig.tanggal_selesai
+                FROM intern_group_members igm
+                JOIN intern_groups ig ON ig.id = igm.group_id
+            ");
+            $groupRows = $groupStmt->fetchAll();
+            foreach ($groupRows as $gr) {
+                $uid = (int)$gr['user_id'];
+                if (!$gr['is_archived']) {
+                    // Punya kelompok aktif
+                    $userHasActiveGroup[$uid] = true;
+                    // Period start: gunakan tanggal_mulai kelompok paling awal (yang aktif)
+                    $grpStart = $gr['tanggal_mulai'];
+                    if (!isset($userPeriodStartOverride[$uid]) || $grpStart < $userPeriodStartOverride[$uid]) {
+                        $userPeriodStartOverride[$uid] = $grpStart;
+                    }
+                    // Period end: jika kelompok sudah selesai (tanggal_selesai < hari ini), override end
+                    $groupEnd = $gr['tanggal_selesai'];
+                    if ($groupEnd < date('Y-m-d')) {
+                        if (!isset($userPeriodEndOverride[$uid]) || $groupEnd > $userPeriodEndOverride[$uid]) {
+                            $userPeriodEndOverride[$uid] = $groupEnd;
+                        }
+                    }
+                } else {
+                    // Kelompok ini archived — tandai user (mungkin juga ada kelompok aktif lain)
+                    if (!isset($archivedUserIds[$uid])) {
+                        $archivedUserIds[$uid] = true; // Sementara, akan di-override jika ada kelompok aktif
+                    }
+                }
+            }
+            // Hapus dari archivedUserIds jika ternyata ada kelompok aktif
+            foreach (array_keys($userHasActiveGroup) as $uid) {
+                unset($archivedUserIds[$uid]);
+            }
+        } catch (PDOException $e) {
+            // Table may not exist yet — ignore silently
+        }
+
+        // Jika filter per-group, ambil tanggal_mulai & tanggal_selesai kelompok itu
+        $filterGroupStart = null;
+        $filterGroupEnd   = null;
+        if ($filterGroupId) {
+            try {
+                $fgStmt = $pdo->prepare("SELECT tanggal_mulai, tanggal_selesai FROM intern_groups WHERE id = :id LIMIT 1");
+                $fgStmt->execute([':id' => $filterGroupId]);
+                $fg = $fgStmt->fetch();
+                if ($fg) {
+                    $filterGroupStart = $fg['tanggal_mulai'];
+                    $filterGroupEnd   = $fg['tanggal_selesai'];
+                }
+            } catch (PDOException $e) {}
+        }
+
         // Get all employees
         $photoField = $includePhotos ? ", foto_base64" : "";
-        $stmt = $pdo->prepare("SELECT id, nama, created_at, nim, startup $photoField FROM users WHERE role = 'pegawai' ORDER BY nama");
-        $stmt->execute();
+        
+        if ($filterGroupId) {
+            // Hanya ambil pegawai dalam kelompok tertentu
+            $stmt = $pdo->prepare("SELECT u.id, u.nama, u.created_at, u.nim, u.startup $photoField FROM users u JOIN intern_group_members igm ON igm.user_id = u.id WHERE u.role = 'pegawai' AND igm.group_id = :gid ORDER BY u.nama");
+            $stmt->execute([':gid' => $filterGroupId]);
+        } else {
+            $stmt = $pdo->prepare("SELECT id, nama, created_at, nim, startup $photoField FROM users WHERE role = 'pegawai' ORDER BY nama");
+            $stmt->execute();
+        }
         $employees = $stmt->fetchAll();
         
         if (empty($employees)) {
@@ -3607,6 +3740,7 @@ function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = n
                 'kpi_data' => []
             ];
         }
+
         
         // Break period into months
         $currentYearMonth = date('Y-m');
@@ -3824,7 +3958,52 @@ function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = n
         $kpiData = [];
         foreach ($employees as $employee) {
             $uid = $employee['id'];
-            $empOverride = isset($workStartDateOverrides[$uid]) ? $workStartDateOverrides[$uid] : false;
+            
+            // Skip pegawai yang tergabung dalam kelompok archived dan TIDAK punya kelompok aktif
+            if (isset($archivedUserIds[$uid]) && !$filterGroupId) {
+                continue;
+            }
+
+            // --- Tentukan effective period start & end per employee ---
+
+            // 1. Effective period START:
+            //    Prioritas: filterGroup tanggal_mulai > intern_group tanggal_mulai > workStartDateOverride > periodStart global
+            $effectivePeriodStart = $periodStart;
+            if ($filterGroupId && $filterGroupStart) {
+                // Filter per-group: mulai dari tanggal_mulai kelompok itu
+                $effectivePeriodStart = $filterGroupStart;
+            } elseif (isset($userPeriodStartOverride[$uid])) {
+                // User ada di kelompok aktif: gunakan tanggal_mulai kelompok terlama
+                // Tapi jangan lebih awal dari periodStart global (jika admin set custom)
+                $grpStart = $userPeriodStartOverride[$uid];
+                if ($customPeriodStart === null) {
+                    // Tidak ada custom period: pakai tanggal_mulai kelompok
+                    $effectivePeriodStart = $grpStart;
+                } else {
+                    // Ada custom period: ambil yang lebih baru antara custom dan tanggal_mulai kelompok
+                    $effectivePeriodStart = max($customPeriodStart, $grpStart);
+                }
+            }
+
+            // 2. Effective period END:
+            //    Prioritas: filterGroup tanggal_selesai > userPeriodEndOverride > periodEnd global
+            $effectivePeriodEnd = $periodEnd;
+            if ($filterGroupId && $filterGroupEnd && $customPeriodEnd === null) {
+                // Filter per-group: batas akhir = tanggal_selesai kelompok (jika sudah selesai)
+                if ($filterGroupEnd < $periodEnd) {
+                    $effectivePeriodEnd = $filterGroupEnd;
+                }
+            } elseif (isset($userPeriodEndOverride[$uid]) && $userPeriodEndOverride[$uid] < $periodEnd) {
+                $effectivePeriodEnd = $userPeriodEndOverride[$uid];
+            }
+
+            // workStartDateOverride (dari settings table) digunakan untuk override start di calculateKPIForEmployeeRaw
+            // Hanya pakai jika TIDAK ada kelompok override yang lebih spesifik
+            $empOverride = false; // Default: biarkan calculateKPIForEmployeeRaw pakai effectivePeriodStart
+            if (!isset($userPeriodStartOverride[$uid]) && !$filterGroupId) {
+                // Tidak ada kelompok: pakai override dari settings table jika ada
+                $empOverride = isset($workStartDateOverrides[$uid]) ? $workStartDateOverrides[$uid] : false;
+            }
             
             $aggregated = [
                 'total_working_days' => 0,
@@ -3879,15 +4058,19 @@ function getAllKPIData(PDO $pdo, $customPeriodStart = null, $customPeriodEnd = n
             }
             
             // Loop through all months and process live/missing months
-            $iter = new DateTime($periodStart);
-            $iter->modify('first day of this month');
-            while ($iter <= $endDateTime) {
+            // Use effectivePeriodStart & effectivePeriodEnd per employee
+            $empStartDateTime = new DateTime($effectivePeriodStart);
+            $empStartDateTime->modify('first day of this month');
+            $empEndDateTime = new DateTime($effectivePeriodEnd);
+            $iter = clone $empStartDateTime;
+            while ($iter <= $empEndDateTime) {
                 $mYear = (int)$iter->format('Y');
                 $mMonth = (int)$iter->format('n');
                 $mYearMonthStr = $iter->format('Y-m');
                 
-                $mStart = max($periodStart, $iter->format('Y-m-01'));
-                $mEnd = min($periodEnd, $iter->format('Y-m-t'));
+                // Batasi mStart ke effectivePeriodStart (bukan periodStart global)
+                $mStart = max($effectivePeriodStart, $iter->format('Y-m-01'));
+                $mEnd = min($effectivePeriodEnd, $iter->format('Y-m-t'));
                 
                 $isFullMonth = ($mStart === $iter->format('Y-m-01') && $mEnd === $iter->format('Y-m-t'));
                 $isPastMonth = false; // Disable cache for real-time KPI

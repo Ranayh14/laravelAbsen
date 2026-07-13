@@ -11,6 +11,34 @@ if (isset($_REQUEST['ajax'])) {
         jsonResponse(['error' => 'Database connection failed'], 500);
     }
 
+    // Helper query strings to exclude archived users (who are in archived groups and NOT in any active groups)
+    $archivedExcludeQuery = "user_id NOT IN (
+        SELECT DISTINCT igm.user_id 
+        FROM intern_group_members igm 
+        JOIN intern_groups ig ON ig.id = igm.group_id 
+        WHERE ig.is_archived = 1 
+        AND igm.user_id NOT IN (
+            SELECT DISTINCT igm2.user_id 
+            FROM intern_group_members igm2 
+            JOIN intern_groups ig2 ON ig2.id = igm2.group_id 
+            WHERE ig2.is_archived = 0
+        )
+    )";
+
+    $archivedExcludeUsersQuery = "id NOT IN (
+        SELECT DISTINCT igm.user_id 
+        FROM intern_group_members igm 
+        JOIN intern_groups ig ON ig.id = igm.group_id 
+        WHERE ig.is_archived = 1 
+        AND igm.user_id NOT IN (
+            SELECT DISTINCT igm2.user_id 
+            FROM intern_group_members igm2 
+            JOIN intern_groups ig2 ON ig2.id = igm2.group_id 
+            WHERE ig2.is_archived = 0
+        )
+    )";
+
+
     // Must be authenticated for all endpoints except auth-related and public landing scan
     if (!in_array($action, ['login', 'register', 'get_members', 'get_member_photo', 'save_face_embedding', 'save_attendance', 'get_today_attendance', 'forgot_password', 'verify_otp', 'reset_password', 'get_ga_qr', 'get_public_daily_report_stats', 'reverse_geocode', 'submit_help_request', 'search_address', 'get_clockin_location', 'get_settings'], true)) {
         if (!isset($_SESSION['user'])) jsonResponse(['error' => 'Unauthorized'], 401);
@@ -188,6 +216,20 @@ if (isset($_REQUEST['ajax'])) {
         $stmt->execute([':email' => $email]);
         $user = $stmt->fetch();
         if ($user && password_verify($password, $user['password'])) {
+            // Check if user is archived (in archived group and NOT in any active group)
+            if ($user['role'] === 'pegawai') {
+                $chkActive = $pdo->prepare("SELECT 1 FROM intern_group_members igm JOIN intern_groups ig ON ig.id = igm.group_id WHERE igm.user_id = :uid AND ig.is_archived = 0 LIMIT 1");
+                $chkActive->execute([':uid' => $user['id']]);
+                $hasActiveGroup = (bool)$chkActive->fetchColumn();
+                
+                $chkArchived = $pdo->prepare("SELECT 1 FROM intern_group_members igm JOIN intern_groups ig ON ig.id = igm.group_id WHERE igm.user_id = :uid AND ig.is_archived = 1 LIMIT 1");
+                $chkArchived->execute([':uid' => $user['id']]);
+                $hasArchivedGroup = (bool)$chkArchived->fetchColumn();
+                
+                if ($hasArchivedGroup && !$hasActiveGroup) {
+                    jsonResponse(['ok' => false, 'message' => 'Akun Anda telah diaktifkan/diarsipkan (lulus). Silakan hubungi admin.'], 403);
+                }
+            }
             $_SESSION['user'] = [
                 'id' => (int)$user['id'],
                 'role' => $user['role'],
@@ -480,8 +522,9 @@ if (isset($_REQUEST['ajax'])) {
             $fields .= ", face_embedding_128 as face_embedding";
         }
         
-        $stmt = $pdo->query("SELECT $fields FROM users WHERE role='pegawai'");
+        $stmt = $pdo->query("SELECT $fields FROM users WHERE role='pegawai' AND $archivedExcludeUsersQuery");
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
         
         // Ensure foto_base64 is a valid URL or base64 data + Pre-crop for 20x speed
         foreach ($rows as &$row) {
@@ -641,6 +684,7 @@ if (isset($_REQUEST['ajax'])) {
                 WHERE DATE(a.jam_masuk_iso) = :today 
                 AND a.jam_masuk IS NOT NULL 
                 AND a.jam_masuk != ''
+                AND a.$archivedExcludeQuery
                 ORDER BY a.jam_masuk_iso DESC
             ");
         } else {
@@ -653,9 +697,11 @@ if (isset($_REQUEST['ajax'])) {
                 WHERE DATE(a.jam_pulang_iso) = :today 
                 AND a.jam_pulang IS NOT NULL 
                 AND a.jam_pulang != ''
+                AND a.$archivedExcludeQuery
                 ORDER BY a.jam_pulang_iso DESC
             ");
         }
+
         
         $stmt->execute([':today' => $today]);
         $rows = $stmt->fetchAll();
@@ -870,6 +916,7 @@ if (isset($_REQUEST['ajax'])) {
                     FROM attendance a 
                     JOIN users u ON u.id=a.user_id 
                     WHERE $whereClause
+                    AND a.$archivedExcludeQuery
                     ORDER BY a.jam_masuk_iso DESC 
                     LIMIT :limit OFFSET :offset";
                 
@@ -919,8 +966,10 @@ if (isset($_REQUEST['ajax'])) {
                     FROM attendance_notes an 
                     JOIN users u ON u.id=an.user_id 
                     WHERE $notesWhereClause
+                    AND an.$archivedExcludeQuery
                     ORDER BY an.date DESC 
                     LIMIT :limit OFFSET :offset";
+
                 
                 $notesStmt = $pdo->prepare($notesSql);
                 foreach ($notesParams as $key => $value) {
@@ -3381,8 +3430,9 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
         $startup = trim($_REQUEST['startup'] ?? '');
         $year = (int)($_REQUEST['year'] ?? 0);
         $month = (int)($_REQUEST['month'] ?? 0);
-        $sql = "SELECT mr.*, u.nim, u.nama, u.startup FROM monthly_reports mr JOIN users u ON u.id=mr.user_id WHERE 1=1";
+        $sql = "SELECT mr.*, u.nim, u.nama, u.startup FROM monthly_reports mr JOIN users u ON u.id=mr.user_id WHERE 1=1 AND mr.$archivedExcludeQuery";
         $params = [];
+
         if($term){ $sql.=" AND (LOWER(u.nama) LIKE :t OR LOWER(u.nim) LIKE :t)"; $params[':t']='%'.$term.'%'; }
         if($startup){ $sql.=" AND u.startup=:s"; $params[':s']=$startup; }
         if($year){ $sql.=" AND mr.year=:y"; $params[':y']=$year; }
@@ -3496,6 +3546,7 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
             JOIN users u ON u.id = a.user_id 
             WHERE DATE(a.jam_masuk_iso) = :today 
             AND a.status = 'terlambat'
+            AND a.$archivedExcludeQuery
             ORDER BY a.jam_masuk_iso DESC
         ");
         $todayLateStmt->execute([':today' => $today]);
@@ -3521,6 +3572,7 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
                 AND DATE(a.jam_masuk_iso) BETWEEN :month_start AND :month_end
                 AND (a.status = 'ontime' OR a.status = 'terlambat')
             WHERE u.role = 'pegawai'
+            AND u.$archivedExcludeUsersQuery
             GROUP BY u.id, u.nama, has_foto
             HAVING total_days > 0
             ORDER BY late_count DESC, ontime_count DESC
@@ -3529,7 +3581,7 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
         $monthlyStats = $monthlyStatsStmt->fetchAll();
         
         // Get summary statistics
-        $totalEmployeesStmt = $pdo->prepare("SELECT COUNT(*) as total FROM users WHERE role = 'pegawai'");
+        $totalEmployeesStmt = $pdo->prepare("SELECT COUNT(*) as total FROM users WHERE role = 'pegawai' AND $archivedExcludeUsersQuery");
         $totalEmployeesStmt->execute();
         $totalEmployees = $totalEmployeesStmt->fetch()['total'];
         
@@ -3538,6 +3590,7 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
             FROM attendance 
             WHERE DATE(jam_masuk_iso) = :today 
             AND (ket = 'wfo' OR ket = 'wfa')
+            AND $archivedExcludeQuery
         ");
         $presentTodayStmt->execute([':today' => $today]);
         $presentToday = $presentTodayStmt->fetch()['present'];
@@ -3547,11 +3600,13 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
             FROM attendance 
             WHERE DATE(jam_masuk_iso) = :today 
             AND status = 'terlambat'
+            AND $archivedExcludeQuery
         ");
         $lateTodayStmt->execute([':today' => $today]);
         $lateToday = $lateTodayStmt->fetch()['late'];
         
         $absentToday = $totalEmployees - $presentToday;
+
         
         // Get attendance trend based on configured period
         $trendData = [];
@@ -3680,10 +3735,12 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
                 WHERE role = 'pegawai' 
                 AND created_at <= :month_end
                 AND DATE(created_at) < :month_start
+                AND $archivedExcludeUsersQuery
             ");
             $monthStart = sprintf('%04d-%02d-01', $year, $month);
             $employeesStmt->execute([':month_end' => $monthEnd, ':month_start' => $monthStart]);
             $totalEmployeesInMonth = $employeesStmt->fetch()['total_employees_in_month'];
+
             
             // Debug: Check individual employee registration dates for October
             if ($month == 10 && $year == 2025) {
@@ -3753,6 +3810,7 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
             WHERE DATE(a.jam_masuk_iso) <= :current_date
                 AND (a.ket = 'wfo' OR a.ket = 'wfa')
                 AND dr.id IS NULL
+                AND a.$archivedExcludeQuery
         ");
         $dailyReportSummaryStmt->execute([':current_date' => $currentDateForReports]);
         $dailyReportStats = $dailyReportSummaryStmt->fetch();
@@ -3772,12 +3830,14 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
                 AND (a.ket = 'wfo' OR a.ket = 'wfa')
                 AND dr.id IS NULL
                 AND u.role = 'pegawai'
+                AND u.$archivedExcludeUsersQuery
             GROUP BY u.id, u.nama, has_foto
             ORDER BY missing_count DESC
             LIMIT 10
         ");
         $dailyReportDetailsStmt->execute([':current_date' => $currentDateForReports]);
         $dailyReportDetails = $dailyReportDetailsStmt->fetchAll();
+
         
         jsonResponse([
             'ok' => true,
@@ -4282,7 +4342,7 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
     if ($action === 'admin_get_help_notifications') {
         if (!isAdmin()) jsonResponse(['error' => 'Forbidden'], 403);
         
-        $stmt = $pdo->query("SELECT r.id, r.user_id, r.request_type, r.tanggal, r.jam_masuk, r.jam_pulang, r.alasan_izin, r.jenis_izin, r.lokasi_presensi, r.bug_description, r.status, r.admin_note, r.created_at, u.nama, u.nim FROM admin_help_requests r JOIN users u ON u.id = r.user_id WHERE r.status = 'pending' ORDER BY r.created_at DESC");
+        $stmt = $pdo->query("SELECT r.id, r.user_id, r.request_type, r.tanggal, r.jam_masuk, r.jam_pulang, r.alasan_izin, r.jenis_izin, r.lokasi_presensi, r.bug_description, r.status, r.admin_note, r.created_at, u.nama, u.nim FROM admin_help_requests r JOIN users u ON u.id = r.user_id WHERE r.status = 'pending' AND r.$archivedExcludeQuery ORDER BY r.created_at DESC");
         $rows = $stmt->fetchAll();
         jsonResponse(['ok' => true, 'data' => $rows]);
     }
@@ -4290,10 +4350,11 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
     if ($action === 'admin_get_all_help_requests') {
         if (!isAdmin()) jsonResponse(['error' => 'Forbidden'], 403);
         
-        $stmt = $pdo->query("SELECT r.id, r.user_id, r.request_type, r.tanggal, r.jam_masuk, r.jam_pulang, r.alasan_izin, r.jenis_izin, r.lokasi_presensi, r.bug_description, r.status, r.admin_note, r.created_at, u.nama, u.nim FROM admin_help_requests r JOIN users u ON u.id = r.user_id ORDER BY r.created_at DESC");
+        $stmt = $pdo->query("SELECT r.id, r.user_id, r.request_type, r.tanggal, r.jam_masuk, r.jam_pulang, r.alasan_izin, r.jenis_izin, r.lokasi_presensi, r.bug_description, r.status, r.admin_note, r.created_at, u.nama, u.nim FROM admin_help_requests r JOIN users u ON u.id = r.user_id WHERE r.$archivedExcludeQuery ORDER BY r.created_at DESC");
         $rows = $stmt->fetchAll();
         jsonResponse(['ok' => true, 'data' => $rows]);
     }
+
 
     if ($action === 'admin_get_help_request_detail') {
         if (!isAdmin()) jsonResponse(['error' => 'Forbidden'], 403);
@@ -4683,7 +4744,304 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
     }
 
 
+    // ============================================================
+    // INTERN GROUPS — Kelompok Magang
+    // ============================================================
+
+    // Helper: pastikan tabel ada sebelum query intern groups
+    if (in_array($action, ['get_intern_groups','save_intern_group','delete_intern_group','get_group_members','assign_members_to_group','archive_intern_group','unarchive_intern_group','export_group_database'])) {
+        try {
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS intern_groups (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    nama VARCHAR(255) NOT NULL,
+                    tanggal_mulai DATE NOT NULL,
+                    tanggal_selesai DATE NOT NULL,
+                    is_archived TINYINT(1) NOT NULL DEFAULT 0,
+                    archived_at DATETIME NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ");
+        } catch (PDOException $e) { /* Sudah ada, abaikan */ }
+        try {
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS intern_group_members (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    group_id INT NOT NULL,
+                    user_id INT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY unique_group_user (group_id, user_id),
+                    KEY fk_igm_group_idx (group_id),
+                    KEY fk_igm_user_idx (user_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ");
+        } catch (PDOException $e) { /* Sudah ada, abaikan */ }
+        // Tambahkan FK secara terpisah (aman jika sudah ada)
+        try { $pdo->exec("ALTER TABLE intern_group_members ADD CONSTRAINT fk_igm_group FOREIGN KEY (group_id) REFERENCES intern_groups(id) ON DELETE CASCADE"); } catch (PDOException $e) {}
+        try { $pdo->exec("ALTER TABLE intern_group_members ADD CONSTRAINT fk_igm_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"); } catch (PDOException $e) {}
+    }
+
+    if ($action === 'get_intern_groups') {
+        if (!isAdmin()) jsonResponse(['error' => 'Forbidden'], 403);
+
+        $stmt = $pdo->query("
+            SELECT ig.*,
+                COUNT(igm.user_id) as member_count,
+                GROUP_CONCAT(u.nama ORDER BY u.nama SEPARATOR '||') as member_names,
+                GROUP_CONCAT(u.id ORDER BY u.nama SEPARATOR ',') as member_ids,
+                GROUP_CONCAT(IFNULL(u.foto_base64,'') ORDER BY u.nama SEPARATOR '||') as member_photos
+            FROM intern_groups ig
+            LEFT JOIN intern_group_members igm ON igm.group_id = ig.id
+            LEFT JOIN users u ON u.id = igm.user_id
+            GROUP BY ig.id
+            ORDER BY ig.is_archived ASC, ig.tanggal_mulai DESC
+        ");
+        $rows = $stmt->fetchAll();
+        // Parse member lists
+        foreach ($rows as &$row) {
+            $row['member_count'] = (int)$row['member_count'];
+            $row['members'] = [];
+            if (!empty($row['member_names'])) {
+                $names = explode('||', $row['member_names']);
+                $ids = explode(',', $row['member_ids']);
+                $photos = explode('||', $row['member_photos'] ?? '');
+                foreach ($names as $i => $name) {
+                    $photoVal = $photos[$i] ?? '';
+                    $row['members'][] = [
+                        'id' => (int)($ids[$i] ?? 0),
+                        'nama' => $name,
+                        'foto_base64' => (strlen($photoVal) > 50) ? $photoVal : null,
+                    ];
+                }
+            }
+            unset($row['member_names'], $row['member_ids'], $row['member_photos']);
+        }
+        unset($row);
+        jsonResponse(['ok' => true, 'data' => $rows]);
+    }
+
+    if ($action === 'save_intern_group' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        if (!isAdmin()) jsonResponse(['error' => 'Forbidden'], 403);
+        $id = (int)($_POST['id'] ?? 0);
+        $nama = trim($_POST['nama'] ?? '');
+        $tanggalMulai = trim($_POST['tanggal_mulai'] ?? '');
+        $tanggalSelesai = trim($_POST['tanggal_selesai'] ?? '');
+        if (!$nama || !$tanggalMulai || !$tanggalSelesai) {
+            jsonResponse(['ok' => false, 'message' => 'Nama, tanggal mulai, dan tanggal selesai wajib diisi'], 400);
+        }
+        if ($tanggalSelesai < $tanggalMulai) {
+            jsonResponse(['ok' => false, 'message' => 'Tanggal selesai harus setelah tanggal mulai'], 400);
+        }
+        if ($id > 0) {
+            $stmt = $pdo->prepare("UPDATE intern_groups SET nama=:nama, tanggal_mulai=:mulai, tanggal_selesai=:selesai WHERE id=:id");
+            $stmt->execute([':nama' => $nama, ':mulai' => $tanggalMulai, ':selesai' => $tanggalSelesai, ':id' => $id]);
+            jsonResponse(['ok' => true, 'message' => 'Kelompok berhasil diperbarui']);
+        } else {
+            $stmt = $pdo->prepare("INSERT INTO intern_groups (nama, tanggal_mulai, tanggal_selesai) VALUES (:nama, :mulai, :selesai)");
+            $stmt->execute([':nama' => $nama, ':mulai' => $tanggalMulai, ':selesai' => $tanggalSelesai]);
+            jsonResponse(['ok' => true, 'message' => 'Kelompok berhasil dibuat', 'id' => (int)$pdo->lastInsertId()]);
+        }
+    }
+
+    if ($action === 'delete_intern_group' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        if (!isAdmin()) jsonResponse(['error' => 'Forbidden'], 403);
+        $id = (int)($_POST['id'] ?? 0);
+        if (!$id) jsonResponse(['ok' => false, 'message' => 'ID tidak valid'], 400);
+        // Check if archived
+        $chk = $pdo->prepare("SELECT is_archived FROM intern_groups WHERE id=:id LIMIT 1");
+        $chk->execute([':id' => $id]);
+        $grp = $chk->fetch();
+        if (!$grp) jsonResponse(['ok' => false, 'message' => 'Kelompok tidak ditemukan'], 404);
+        if ($grp['is_archived']) jsonResponse(['ok' => false, 'message' => 'Kelompok yang sudah di-archive tidak bisa dihapus. Unarchive terlebih dahulu.'], 400);
+        $pdo->prepare("DELETE FROM intern_groups WHERE id=:id")->execute([':id' => $id]);
+        jsonResponse(['ok' => true, 'message' => 'Kelompok berhasil dihapus']);
+    }
+
+    if ($action === 'get_group_members') {
+        if (!isAdmin()) jsonResponse(['error' => 'Forbidden'], 403);
+        $groupId = (int)($_GET['group_id'] ?? 0);
+        if (!$groupId) jsonResponse(['ok' => false, 'message' => 'group_id wajib'], 400);
+        $stmt = $pdo->prepare("SELECT u.id, u.nama, u.nim, u.prodi, u.startup FROM users u JOIN intern_group_members igm ON igm.user_id = u.id WHERE igm.group_id = :gid ORDER BY u.nama");
+        $stmt->execute([':gid' => $groupId]);
+        jsonResponse(['ok' => true, 'data' => $stmt->fetchAll()]);
+    }
+
+    if ($action === 'assign_members_to_group' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        if (!isAdmin()) jsonResponse(['error' => 'Forbidden'], 403);
+        $groupId = (int)($_POST['group_id'] ?? 0);
+        if (!$groupId) jsonResponse(['ok' => false, 'message' => 'group_id wajib'], 400);
+        // Check if archived
+        $chk = $pdo->prepare("SELECT is_archived FROM intern_groups WHERE id=:id LIMIT 1");
+        $chk->execute([':id' => $groupId]);
+        $grp = $chk->fetch();
+        if (!$grp) jsonResponse(['ok' => false, 'message' => 'Kelompok tidak ditemukan'], 404);
+        if ($grp['is_archived']) jsonResponse(['ok' => false, 'message' => 'Kelompok yang sudah di-archive tidak bisa diubah anggotanya'], 400);
+        
+        $userIds = $_POST['user_ids'] ?? [];
+        if (is_string($userIds)) {
+            $userIds = array_filter(array_map('intval', explode(',', $userIds)));
+        } else {
+            $userIds = array_filter(array_map('intval', $userIds));
+        }
+        
+        // Delete existing members and replace
+        $pdo->prepare("DELETE FROM intern_group_members WHERE group_id=:gid")->execute([':gid' => $groupId]);
+        if (!empty($userIds)) {
+            $ins = $pdo->prepare("INSERT IGNORE INTO intern_group_members (group_id, user_id) VALUES (:gid, :uid)");
+            foreach ($userIds as $uid) {
+                $ins->execute([':gid' => $groupId, ':uid' => $uid]);
+            }
+        }
+        // Clear KPI cache untuk semua anggota agar period start terupdate
+        try {
+            $allUids = array_merge($userIds, array_column(
+                $pdo->prepare("SELECT user_id FROM intern_group_members WHERE group_id=:gid")->execute([':gid' => $groupId]) ? [] : [],
+                'user_id'
+            ));
+            // Lebih aman: hapus cache semua user yang mungkin terdampak
+            foreach ($userIds as $mid) {
+                $pdo->prepare("DELETE FROM kpi_monthly_cache WHERE user_id=:uid")->execute([':uid' => $mid]);
+            }
+        } catch (PDOException $e) { /* silent */ }
+        jsonResponse(['ok' => true, 'message' => 'Anggota kelompok berhasil diperbarui']);
+    }
+
+    if ($action === 'archive_intern_group' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        if (!isAdmin()) jsonResponse(['error' => 'Forbidden'], 403);
+        $id = (int)($_POST['id'] ?? 0);
+        if (!$id) jsonResponse(['ok' => false, 'message' => 'ID tidak valid'], 400);
+        $chk = $pdo->prepare("SELECT is_archived, (SELECT COUNT(*) FROM intern_group_members WHERE group_id=:id2) as member_count FROM intern_groups WHERE id=:id LIMIT 1");
+        $chk->execute([':id' => $id, ':id2' => $id]);
+        $grp = $chk->fetch();
+        if (!$grp) jsonResponse(['ok' => false, 'message' => 'Kelompok tidak ditemukan'], 404);
+        if ($grp['is_archived']) jsonResponse(['ok' => false, 'message' => 'Kelompok sudah di-archive'], 400);
+        $pdo->prepare("UPDATE intern_groups SET is_archived=1, archived_at=NOW() WHERE id=:id")->execute([':id' => $id]);
+        // Clear KPI cache untuk semua anggota kelompok ini
+        try {
+            $mStmt = $pdo->prepare("SELECT user_id FROM intern_group_members WHERE group_id=:gid");
+            $mStmt->execute([':gid' => $id]);
+            $memberIds = array_column($mStmt->fetchAll(), 'user_id');
+            foreach ($memberIds as $mid) {
+                // Hapus seluruh cache user ini agar KPI terupdate
+                $pdo->prepare("DELETE FROM kpi_monthly_cache WHERE user_id=:uid")->execute([':uid' => $mid]);
+            }
+        } catch (PDOException $e) { /* silent */ }
+        jsonResponse(['ok' => true, 'message' => 'Kelompok berhasil di-archive. Pegawai dalam kelompok ini tidak akan tampil di KPI dan daftar aktif.']);
+    }
+
+    if ($action === 'unarchive_intern_group' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        if (!isAdmin()) jsonResponse(['error' => 'Forbidden'], 403);
+        $id = (int)($_POST['id'] ?? 0);
+        if (!$id) jsonResponse(['ok' => false, 'message' => 'ID tidak valid'], 400);
+        $pdo->prepare("UPDATE intern_groups SET is_archived=0, archived_at=NULL WHERE id=:id")->execute([':id' => $id]);
+        // Clear KPI cache untuk semua anggota kelompok ini agar muncul kembali di KPI
+        try {
+            $mStmt = $pdo->prepare("SELECT user_id FROM intern_group_members WHERE group_id=:gid");
+            $mStmt->execute([':gid' => $id]);
+            $memberIds = array_column($mStmt->fetchAll(), 'user_id');
+            foreach ($memberIds as $mid) {
+                $pdo->prepare("DELETE FROM kpi_monthly_cache WHERE user_id=:uid")->execute([':uid' => $mid]);
+            }
+        } catch (PDOException $e) { /* silent */ }
+        jsonResponse(['ok' => true, 'message' => 'Kelompok berhasil di-unarchive. Data pegawai dikembalikan ke KPI dan daftar aktif.']);
+    }
+
+    // Download database untuk pegawai dalam satu kelompok
+    if ($action === 'export_group_database') {
+        if (!isAdmin()) jsonResponse(['error' => 'Forbidden'], 403);
+        $groupId = (int)($_GET['group_id'] ?? 0);
+        if (!$groupId) jsonResponse(['ok' => false, 'message' => 'group_id wajib'], 400);
+
+        @ini_set('memory_limit', '512M');
+        @set_time_limit(300);
+
+        // Get group info
+        $grpStmt = $pdo->prepare("SELECT * FROM intern_groups WHERE id=:id LIMIT 1");
+        $grpStmt->execute([':id' => $groupId]);
+        $group = $grpStmt->fetch();
+        if (!$group) { header('HTTP/1.1 404 Not Found'); echo 'Kelompok tidak ditemukan'; exit; }
+
+        // Get member user_ids
+        $mStmt = $pdo->prepare("SELECT user_id FROM intern_group_members WHERE group_id=:gid");
+        $mStmt->execute([':gid' => $groupId]);
+        $memberIds = array_column($mStmt->fetchAll(), 'user_id');
+
+        if (empty($memberIds)) { jsonResponse(['ok' => false, 'message' => 'Kelompok tidak memiliki anggota']); }
+
+        $idList = implode(',', array_map('intval', $memberIds));
+
+        $sql = "-- Database Export Kelompok: " . $group['nama'] . "\n";
+        $sql .= "-- Periode: " . $group['tanggal_mulai'] . " s/d " . $group['tanggal_selesai'] . "\n";
+        $sql .= "-- Diekspor: " . date('Y-m-d H:i:s') . "\n\n";
+        $sql .= "SET FOREIGN_KEY_CHECKS=0;\n\n";
+
+        // Export users
+        $uStmt = $pdo->query("SELECT id, role, email, nim, nama, prodi, startup, created_at FROM users WHERE id IN ($idList)");
+        $users = $uStmt->fetchAll();
+        if (!empty($users)) {
+            $sql .= "-- USERS (tanpa password & foto)\n";
+            foreach ($users as $row) {
+                $vals = array_map(function($v) use ($pdo) { return $v === null ? 'NULL' : $pdo->quote($v); }, $row);
+                $sql .= "INSERT INTO users (" . implode(', ', array_map(fn($k)=>"`$k`", array_keys($row))) . ") VALUES (" . implode(', ', $vals) . ");\n";
+            }
+            $sql .= "\n";
+        }
+
+        // Export attendance
+        $aStmt = $pdo->query("SELECT id, user_id, jam_masuk, jam_masuk_iso, status, ket, jam_pulang, jam_pulang_iso, lokasi_masuk, lokasi_pulang, alasan_izin_sakit, created_at FROM attendance WHERE user_id IN ($idList)");
+        $attends = $aStmt->fetchAll();
+        if (!empty($attends)) {
+            $sql .= "-- ATTENDANCE\n";
+            foreach ($attends as $row) {
+                $vals = array_map(function($v) use ($pdo) { return $v === null ? 'NULL' : $pdo->quote($v); }, $row);
+                $sql .= "INSERT INTO attendance (" . implode(', ', array_map(fn($k)=>"`$k`", array_keys($row))) . ") VALUES (" . implode(', ', $vals) . ");\n";
+            }
+            $sql .= "\n";
+        }
+
+        // Export attendance_notes
+        $nStmt = $pdo->query("SELECT * FROM attendance_notes WHERE user_id IN ($idList)");
+        $notes = $nStmt->fetchAll();
+        if (!empty($notes)) {
+            $sql .= "-- ATTENDANCE NOTES\n";
+            foreach ($notes as $row) {
+                $vals = array_map(function($v) use ($pdo) { return $v === null ? 'NULL' : $pdo->quote($v); }, $row);
+                $sql .= "INSERT INTO attendance_notes (" . implode(', ', array_map(fn($k)=>"`$k`", array_keys($row))) . ") VALUES (" . implode(', ', $vals) . ");\n";
+            }
+            $sql .= "\n";
+        }
+
+        // Export monthly_reports
+        $mrStmt = $pdo->query("SELECT id, user_id, year, month, summary, status, created_at FROM monthly_reports WHERE user_id IN ($idList)");
+        $reports = $mrStmt->fetchAll();
+        if (!empty($reports)) {
+            $sql .= "-- MONTHLY REPORTS\n";
+            foreach ($reports as $row) {
+                $vals = array_map(function($v) use ($pdo) { return $v === null ? 'NULL' : $pdo->quote($v); }, $row);
+                $sql .= "INSERT INTO monthly_reports (" . implode(', ', array_map(fn($k)=>"`$k`", array_keys($row))) . ") VALUES (" . implode(', ', $vals) . ");\n";
+            }
+            $sql .= "\n";
+        }
+
+        $sql .= "SET FOREIGN_KEY_CHECKS=1;\n";
+
+        $groupSlug = preg_replace('/[^a-zA-Z0-9]/', '_', $group['nama']);
+        $filename = 'db_kelompok_' . $groupSlug . '_' . date('Y-m-d') . '.sql';
+
+        // Clear any output buffering
+        while (ob_get_level() > 0) { ob_end_clean(); }
+
+        header('Content-Type: application/octet-stream');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Content-Length: ' . strlen($sql));
+        header('Cache-Control: no-cache');
+        echo $sql;
+        exit;
+    }
+
     jsonResponse(['ok' => false, 'message' => 'Endpoint tidak ditemukan'], 404);
+
     } catch (\Throwable $e) {
         error_log("AJAX Handler Error: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
         jsonResponse([

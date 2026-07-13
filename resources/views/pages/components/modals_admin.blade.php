@@ -261,3 +261,189 @@
         </div>
     </div>
 </div>
+
+<!-- ============================================================ -->
+<!-- Modal: Buat / Edit Kelompok Magang                           -->
+<!-- ============================================================ -->
+<div id="modal-kelompok-form" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] hidden p-4">
+    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div class="bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-5 flex items-center justify-between">
+            <h3 id="modal-kelompok-title" class="text-lg font-bold text-white flex items-center gap-2">
+                <i class="fi fi-sr-layers"></i> Buat Kelompok Magang
+            </h3>
+            <button onclick="closeGroupModal()" class="text-white/70 hover:text-white transition-colors p-1 hover:bg-white/20 rounded-full">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+        <div class="p-6 space-y-4">
+            <input type="hidden" id="kf-id">
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1.5">Nama Kelompok <span class="text-red-500">*</span></label>
+                <input type="text" id="kf-nama" placeholder="contoh: Periode 1, Angkatan A" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all text-sm" onkeydown="if(event.key==='Enter') submitGroupForm()">
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1.5">Tanggal Mulai <span class="text-red-500">*</span></label>
+                    <input type="date" id="kf-mulai" class="w-full px-3 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all text-sm">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1.5">Tanggal Selesai <span class="text-red-500">*</span></label>
+                    <input type="date" id="kf-selesai" class="w-full px-3 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all text-sm">
+                </div>
+            </div>
+            <p id="kf-error" class="text-sm text-red-500 font-medium min-h-[1.2em]"></p>
+            <div class="flex gap-3 pt-2">
+                <button onclick="closeGroupModal()" class="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-semibold transition-all text-sm">Batal</button>
+                <button onclick="submitGroupForm()" class="flex-1 px-4 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl font-semibold transition-all shadow-md hover:shadow-lg text-sm">Simpan</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Modal: Kelola Anggota Kelompok                               -->
+<!-- ============================================================ -->
+<div id="modal-kelola-anggota" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] hidden p-4">
+    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
+        <div class="bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-5 flex items-center justify-between rounded-t-3xl flex-shrink-0">
+            <div>
+                <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                    <i class="fi fi-sr-users"></i> Kelola Anggota
+                </h3>
+                <p id="ma-group-name" class="text-indigo-200 text-sm mt-0.5"></p>
+            </div>
+            <button onclick="closeManageMembersModal()" class="text-white/70 hover:text-white transition-colors p-1 hover:bg-white/20 rounded-full">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+        <!-- Search -->
+        <div class="px-4 py-3 border-b border-gray-100 flex-shrink-0">
+            <div class="relative">
+                <i class="fi fi-sr-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+                <input type="text" id="ma-search" placeholder="Cari pegawai..." class="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all" oninput="filterMemberCheckList(this.value)">
+            </div>
+        </div>
+        <!-- Body scrollable -->
+        <div id="ma-body" class="flex-1 overflow-y-auto p-3 space-y-1 min-h-0">
+            <!-- Populated by JS -->
+        </div>
+        <!-- Footer -->
+        <div class="flex items-center justify-between gap-3 px-4 py-4 border-t border-gray-100 bg-gray-50/60 rounded-b-3xl flex-shrink-0">
+            <span id="ma-count" class="text-sm text-indigo-600 font-semibold">0 dipilih</span>
+            <div class="flex gap-2">
+                <button onclick="closeManageMembersModal()" class="px-4 py-2.5 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-semibold text-sm transition-all">Batal</button>
+                <button onclick="submitManageMembers()" class="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl font-semibold text-sm transition-all shadow-md hover:shadow-lg">Simpan Anggota</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Modal: Konfirmasi Aksi Kelompok (Archive/Unarchive/Delete)   -->
+<!-- ============================================================ -->
+<div id="modal-konfirmasi-group" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[70] hidden p-4">
+    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-fade-in-up">
+        <!-- Icon area -->
+        <div id="konfirmasi-icon-area" class="px-6 pt-8 pb-4 flex flex-col items-center text-center">
+            <div id="konfirmasi-icon-circle" class="w-16 h-16 rounded-full flex items-center justify-center mb-4 text-2xl">
+                <i id="konfirmasi-icon" class="fi fi-sr-archive"></i>
+            </div>
+            <h3 id="konfirmasi-title" class="text-xl font-bold text-gray-800 mb-2">Konfirmasi</h3>
+            <p id="konfirmasi-desc" class="text-sm text-gray-500 leading-relaxed"></p>
+            <div id="konfirmasi-badges" class="mt-4 space-y-1.5 text-left w-full hidden">
+                <!-- Dynamic badges injected by JS -->
+            </div>
+        </div>
+        <!-- Footer buttons -->
+        <div class="px-6 pb-6 flex gap-3 mt-2">
+            <button id="konfirmasi-batal" onclick="closeKonfirmasiModal()" class="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-semibold transition-all text-sm">
+                Batal
+            </button>
+            <button id="konfirmasi-ok" class="flex-1 px-4 py-3 rounded-xl font-semibold text-white transition-all shadow-md hover:shadow-lg text-sm">
+                Konfirmasi
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+#modal-konfirmasi-group .animate-fade-in-up {
+    animation: konfirmasi-pop 0.2s ease-out;
+}
+@keyframes konfirmasi-pop {
+    from { opacity: 0; transform: scale(0.9) translateY(10px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+</style>
+
+<script>
+// ============================================================
+// Modal Konfirmasi Universal
+// ============================================================
+let _konfirmasiCallback = null;
+
+function showKonfirmasiModal(config) {
+    // config: { type: 'archive'|'unarchive'|'delete', title, desc, badges[], btnLabel, callback }
+    const modal       = document.getElementById('modal-konfirmasi-group');
+    const iconCircle  = document.getElementById('konfirmasi-icon-circle');
+    const iconEl      = document.getElementById('konfirmasi-icon');
+    const titleEl     = document.getElementById('konfirmasi-title');
+    const descEl      = document.getElementById('konfirmasi-desc');
+    const badgesEl    = document.getElementById('konfirmasi-badges');
+    const okBtn       = document.getElementById('konfirmasi-ok');
+
+    const themes = {
+        archive:   { bg: 'bg-amber-100',  text: 'text-amber-600',  btn: 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700', icon: 'fi-sr-archive' },
+        unarchive: { bg: 'bg-blue-100',   text: 'text-blue-600',   btn: 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700',     icon: 'fi-sr-undo' },
+        delete:    { bg: 'bg-red-100',    text: 'text-red-600',    btn: 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700',         icon: 'fi-sr-trash' },
+    };
+
+    const t = themes[config.type] || themes.archive;
+
+    // Apply theme
+    iconCircle.className = 'w-16 h-16 rounded-full flex items-center justify-center mb-4 text-2xl ' + t.bg + ' ' + t.text;
+    iconEl.className     = 'fi ' + t.icon;
+    okBtn.className      = 'flex-1 px-4 py-3 rounded-xl font-semibold text-white transition-all shadow-md hover:shadow-lg text-sm ' + t.btn;
+    okBtn.textContent    = config.btnLabel || 'Konfirmasi';
+
+    titleEl.textContent  = config.title || 'Konfirmasi';
+    descEl.textContent   = config.desc  || '';
+
+    // Badges
+    if (config.badges && config.badges.length > 0) {
+        badgesEl.innerHTML = config.badges.map(b =>
+            `<div class="flex items-center gap-2 text-xs text-gray-600 bg-gray-50 rounded-lg px-3 py-1.5 border border-gray-100">
+                <i class="fi fi-sr-check-circle text-indigo-400 flex-shrink-0"></i>
+                <span>${b}</span>
+            </div>`
+        ).join('');
+        badgesEl.classList.remove('hidden');
+    } else {
+        badgesEl.classList.add('hidden');
+    }
+
+    _konfirmasiCallback = config.callback;
+    okBtn.onclick = function() {
+        const cb = _konfirmasiCallback;
+        closeKonfirmasiModal();
+        if (typeof cb === 'function') cb();
+    };
+
+    modal.classList.remove('hidden');
+}
+
+function closeKonfirmasiModal() {
+    const modal = document.getElementById('modal-konfirmasi-group');
+    if (modal) modal.classList.add('hidden');
+    _konfirmasiCallback = null;
+}
+
+// Close on backdrop click
+document.addEventListener('DOMContentLoaded', function() {
+    const modal = document.getElementById('modal-konfirmasi-group');
+    if (!modal) return;
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) closeKonfirmasiModal();
+    });
+});
+</script>
