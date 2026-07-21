@@ -3571,7 +3571,7 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
             LEFT JOIN attendance a ON u.id = a.user_id 
                 AND DATE(a.jam_masuk_iso) BETWEEN :month_start AND :month_end
                 AND (a.status = 'ontime' OR a.status = 'terlambat')
-            WHERE u.role = 'pegawai'
+            WHERE u.role = 'pegawai' AND u.$archivedExcludeUsersQuery
             AND u.$archivedExcludeUsersQuery
             GROUP BY u.id, u.nama, has_foto
             HAVING total_days > 0
@@ -3883,7 +3883,7 @@ if ($action === 'get_ultra_detailed_stats' && $_SERVER['REQUEST_METHOD'] === 'GE
                         AND dr2.id IS NULL
                 ), 0) as missing_count
             FROM users u
-            WHERE u.role = 'pegawai'
+            WHERE u.role = 'pegawai' AND u.$archivedExcludeUsersQuery
             ORDER BY missing_count DESC, u.nama ASC
         ");
         $dailyReportDetailsStmt->execute([':current_date' => $currentDateForReports]);

@@ -31,6 +31,198 @@
 </div>
 
 <script>
+// ==========================================
+// UNIVERSAL TABLE PAGINATION ENGINE
+// ==========================================
+window.tablePaginationState = window.tablePaginationState || {};
+
+window.resetTablePage = function(tbodyId) {
+    if (window.tablePaginationState && window.tablePaginationState[tbodyId]) {
+        window.tablePaginationState[tbodyId].currentPage = 1;
+    }
+};
+
+window.renderPaginatedTable = function(tbodyId, items, renderFn, options = {}) {
+    const body = qs('#' + tbodyId);
+    if (!body) return;
+
+    if (!window.tablePaginationState[tbodyId]) {
+        window.tablePaginationState[tbodyId] = {
+            currentPage: 1,
+            pageSize: options.pageSize || 10
+        };
+    }
+
+    const state = window.tablePaginationState[tbodyId];
+    const pageSize = state.pageSize;
+    const totalItems = items.length;
+    const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+
+    if (state.currentPage > totalPages) state.currentPage = totalPages;
+    if (state.currentPage < 1) state.currentPage = 1;
+
+    const currentPage = state.currentPage;
+    body.innerHTML = '';
+
+    if (totalItems === 0) {
+        const colSpan = options.colSpan || 12;
+        const emptyMsg = options.emptyMessage || 'Tidak ada data.';
+        body.innerHTML = `<tr><td colspan="${colSpan}" class="text-center py-6 text-gray-500 font-medium">${emptyMsg}</td></tr>`;
+        window.renderPaginationUI(tbodyId, 0, 1, pageSize, 0, 0, () => {}, () => {});
+        return;
+    }
+
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = Math.min(startIndex + pageSize, totalItems);
+    const pageItems = items.slice(startIndex, endIndex);
+
+    pageItems.forEach((item, index) => {
+        const actualIndex = startIndex + index;
+        const row = renderFn(item, actualIndex);
+        if (typeof row === 'string') {
+            body.insertAdjacentHTML('beforeend', row);
+        } else if (row instanceof HTMLElement) {
+            body.appendChild(row);
+        }
+    });
+
+    window.renderPaginationUI(
+        tbodyId,
+        totalItems,
+        currentPage,
+        pageSize,
+        startIndex,
+        endIndex,
+        (newPage) => {
+            state.currentPage = newPage;
+            if (options.onPageChange) options.onPageChange();
+        },
+        (newSize) => {
+            state.pageSize = newSize;
+            state.currentPage = 1;
+            if (options.onPageChange) options.onPageChange();
+        }
+    );
+};
+
+window.renderPaginationUI = function(tbodyId, totalItems, currentPage, pageSize, startIndex, endIndex, onPageChange, onSizeChange) {
+    const body = qs('#' + tbodyId);
+    if (!body) return;
+
+    const table = body.closest('table');
+    if (!table) return;
+
+    const tableWrapper = table.closest('.overflow-x-auto') || table.parentElement;
+    const paginationId = tbodyId + '-pagination';
+    let container = document.getElementById(paginationId);
+
+    if (!container) {
+        container = document.createElement('div');
+        container.id = paginationId;
+        container.className = 'table-pagination-container flex flex-col sm:flex-row items-center justify-between gap-4 mt-4 px-4 py-3 bg-white border border-gray-200 rounded-xl shadow-xs text-sm text-gray-600';
+        tableWrapper.insertAdjacentElement('afterend', container);
+    }
+
+    if (totalItems === 0) {
+        container.innerHTML = `<div class="text-xs text-gray-500 italic">Menampilkan 0 data</div>`;
+        return;
+    }
+
+    const totalPages = Math.ceil(totalItems / pageSize);
+    const startNum = startIndex + 1;
+    const endNum = endIndex;
+
+    let pageNumbers = [];
+    if (totalPages <= 7) {
+        for (let i = 1; i <= totalPages; i++) pageNumbers.push(i);
+    } else {
+        if (currentPage <= 4) {
+            pageNumbers = [1, 2, 3, 4, 5, '...', totalPages];
+        } else if (currentPage >= totalPages - 3) {
+            pageNumbers = [1, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+        } else {
+            pageNumbers = [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages];
+        }
+    }
+
+    let buttonsHTML = `
+        <button type="button" data-page="1" ${currentPage === 1 ? 'disabled' : ''} class="pag-btn px-2.5 py-1.5 rounded-lg border text-xs font-semibold ${currentPage === 1 ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 cursor-pointer'}">
+            &laquo;
+        </button>
+        <button type="button" data-page="${currentPage - 1}" ${currentPage === 1 ? 'disabled' : ''} class="pag-btn px-3 py-1.5 rounded-lg border text-xs font-semibold ${currentPage === 1 ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 cursor-pointer'}">
+            Sebelumnya
+        </button>
+    `;
+
+    pageNumbers.forEach(p => {
+        if (p === '...') {
+            buttonsHTML += `<span class="px-2 py-1 text-gray-400 text-xs">...</span>`;
+        } else {
+            const isActive = p === currentPage;
+            buttonsHTML += `
+                <button type="button" data-page="${p}" class="pag-btn px-3 py-1.5 rounded-lg border text-xs font-semibold ${isActive ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 cursor-pointer'}">
+                    ${p}
+                </button>
+            `;
+        }
+    });
+
+    buttonsHTML += `
+        <button type="button" data-page="${currentPage + 1}" ${currentPage === totalPages ? 'disabled' : ''} class="pag-btn px-3 py-1.5 rounded-lg border text-xs font-semibold ${currentPage === totalPages ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 cursor-pointer'}">
+            Selanjutnya
+        </button>
+        <button type="button" data-page="${totalPages}" ${currentPage === totalPages ? 'disabled' : ''} class="pag-btn px-2.5 py-1.5 rounded-lg border text-xs font-semibold ${currentPage === totalPages ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 cursor-pointer'}">
+            &raquo;
+        </button>
+    `;
+
+    container.innerHTML = `
+        <div class="flex items-center gap-3">
+            <span class="text-xs text-gray-600">
+                Menampilkan <span class="font-bold text-gray-800">${startNum}</span> - <span class="font-bold text-gray-800">${endNum}</span> dari <span class="font-bold text-gray-800">${totalItems}</span> data
+            </span>
+            <div class="flex items-center gap-1.5 ml-2 border-l border-gray-200 pl-3">
+                <label class="text-xs text-gray-500">Per halaman:</label>
+                <select class="pag-size-select text-xs border border-gray-300 rounded-md px-2 py-1 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                    <option value="10" ${pageSize === 10 ? 'selected' : ''}>10</option>
+                    <option value="25" ${pageSize === 25 ? 'selected' : ''}>25</option>
+                    <option value="50" ${pageSize === 50 ? 'selected' : ''}>50</option>
+                    <option value="100" ${pageSize === 100 ? 'selected' : ''}>100</option>
+                </select>
+            </div>
+        </div>
+        <div class="flex items-center gap-1 flex-wrap">
+            ${buttonsHTML}
+        </div>
+    `;
+
+    container.querySelectorAll('.pag-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (btn.disabled) return;
+            const page = parseInt(btn.getAttribute('data-page'));
+            if (page && page !== currentPage) {
+                onPageChange(page);
+            }
+        });
+    });
+
+    const sizeSelect = container.querySelector('.pag-size-select');
+    if (sizeSelect) {
+        sizeSelect.addEventListener('change', (e) => {
+            const newSize = parseInt(e.target.value);
+            if (newSize) {
+                onSizeChange(newSize);
+            }
+        });
+    }
+};
+
+function resetTablePage(tbodyId) { return window.resetTablePage(tbodyId); }
+function renderPaginatedTable(tbodyId, items, renderFn, options) { return window.renderPaginatedTable(tbodyId, items, renderFn, options); }
+function renderPaginationUI(tbodyId, totalItems, currentPage, pageSize, startIndex, endIndex, onPageChange, onSizeChange) { return window.renderPaginationUI(tbodyId, totalItems, currentPage, pageSize, startIndex, endIndex, onPageChange, onSizeChange); }
+
+
 // Global state logic
 if (typeof dashboardCharts === 'undefined') {
     window.dashboardCharts = {}; // Global chart instance holder
@@ -4578,7 +4770,7 @@ async function loadLandingDailyReportStats() {
         // Show section immediately
         landingStatsDiv.style.display = 'block';
         
-        const result = await api('?ajax=get_public_daily_report_stats', {}, { suppressModal: true, cache: true, ttl: 30000 });
+        const result = await api('?ajax=get_public_daily_report_stats', {}, { suppressModal: true, cache: false });
         
         console.log('Public daily report stats response:', result);
         
@@ -4803,23 +4995,192 @@ async function loadLogPulang() {
     }
 }
 
-// Render log presensi masuk
-function renderLogMasuk() {
-    const body = qs('#log-masuk-body');
+// ==========================================
+function resetTablePage(tbodyId) {
+    if (window.tablePaginationState && window.tablePaginationState[tbodyId]) {
+        window.tablePaginationState[tbodyId].currentPage = 1;
+    }
+}
+
+function renderPaginatedTable(tbodyId, items, renderFn, options = {}) {
+    const body = qs('#' + tbodyId);
     if (!body) return;
-    
-    console.log('Rendering log masuk with data:', logMasukData);
-    
+
+    if (!window.tablePaginationState[tbodyId]) {
+        window.tablePaginationState[tbodyId] = {
+            currentPage: 1,
+            pageSize: options.pageSize || 10
+        };
+    }
+
+    const state = window.tablePaginationState[tbodyId];
+    const pageSize = state.pageSize;
+    const totalItems = items.length;
+    const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+
+    if (state.currentPage > totalPages) state.currentPage = totalPages;
+    if (state.currentPage < 1) state.currentPage = 1;
+
+    const currentPage = state.currentPage;
     body.innerHTML = '';
-    if (logMasukData.length === 0) {
-        body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-gray-500">Belum ada presensi masuk hari ini</td></tr>';
+
+    if (totalItems === 0) {
+        const colSpan = options.colSpan || 12;
+        const emptyMsg = options.emptyMessage || 'Tidak ada data.';
+        body.innerHTML = `<tr><td colspan="${colSpan}" class="text-center py-6 text-gray-500 font-medium">${emptyMsg}</td></tr>`;
+        renderPaginationUI(tbodyId, 0, 1, pageSize, 0, 0, () => {}, () => {});
         return;
     }
-    
-    logMasukData.forEach((item, index) => {
-        const tr = document.createElement('tr');
-        tr.className = 'border-b hover:bg-gray-50';
-        
+
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = Math.min(startIndex + pageSize, totalItems);
+    const pageItems = items.slice(startIndex, endIndex);
+
+    pageItems.forEach((item, index) => {
+        const actualIndex = startIndex + index;
+        const row = renderFn(item, actualIndex);
+        if (typeof row === 'string') {
+            body.insertAdjacentHTML('beforeend', row);
+        } else if (row instanceof HTMLElement) {
+            body.appendChild(row);
+        }
+    });
+
+    renderPaginationUI(
+        tbodyId,
+        totalItems,
+        currentPage,
+        pageSize,
+        startIndex,
+        endIndex,
+        (newPage) => {
+            state.currentPage = newPage;
+            if (options.onPageChange) options.onPageChange();
+        },
+        (newSize) => {
+            state.pageSize = newSize;
+            state.currentPage = 1;
+            if (options.onPageChange) options.onPageChange();
+        }
+    );
+}
+
+function renderPaginationUI(tbodyId, totalItems, currentPage, pageSize, startIndex, endIndex, onPageChange, onSizeChange) {
+    const body = qs('#' + tbodyId);
+    if (!body) return;
+
+    const table = body.closest('table');
+    if (!table) return;
+
+    const tableWrapper = table.closest('.overflow-x-auto') || table.parentElement;
+    const paginationId = tbodyId + '-pagination';
+    let container = document.getElementById(paginationId);
+
+    if (!container) {
+        container = document.createElement('div');
+        container.id = paginationId;
+        container.className = 'table-pagination-container flex flex-col sm:flex-row items-center justify-between gap-4 mt-4 px-4 py-3 bg-white border border-gray-200 rounded-xl shadow-xs text-sm text-gray-600';
+        tableWrapper.insertAdjacentElement('afterend', container);
+    }
+
+    if (totalItems === 0) {
+        container.innerHTML = `<div class="text-xs text-gray-500 italic">Menampilkan 0 data</div>`;
+        return;
+    }
+
+    const totalPages = Math.ceil(totalItems / pageSize);
+    const startNum = startIndex + 1;
+    const endNum = endIndex;
+
+    let pageNumbers = [];
+    if (totalPages <= 7) {
+        for (let i = 1; i <= totalPages; i++) pageNumbers.push(i);
+    } else {
+        if (currentPage <= 4) {
+            pageNumbers = [1, 2, 3, 4, 5, '...', totalPages];
+        } else if (currentPage >= totalPages - 3) {
+            pageNumbers = [1, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+        } else {
+            pageNumbers = [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages];
+        }
+    }
+
+    let buttonsHTML = `
+        <button type="button" data-page="1" ${currentPage === 1 ? 'disabled' : ''} class="pag-btn px-2.5 py-1.5 rounded-lg border text-xs font-semibold ${currentPage === 1 ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 cursor-pointer'}">
+            &laquo;
+        </button>
+        <button type="button" data-page="${currentPage - 1}" ${currentPage === 1 ? 'disabled' : ''} class="pag-btn px-3 py-1.5 rounded-lg border text-xs font-semibold ${currentPage === 1 ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 cursor-pointer'}">
+            Sebelumnya
+        </button>
+    `;
+
+    pageNumbers.forEach(p => {
+        if (p === '...') {
+            buttonsHTML += `<span class="px-2 py-1 text-gray-400 text-xs">...</span>`;
+        } else {
+            const isActive = p === currentPage;
+            buttonsHTML += `
+                <button type="button" data-page="${p}" class="pag-btn px-3 py-1.5 rounded-lg border text-xs font-semibold ${isActive ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 cursor-pointer'}">
+                    ${p}
+                </button>
+            `;
+        }
+    });
+
+    buttonsHTML += `
+        <button type="button" data-page="${currentPage + 1}" ${currentPage === totalPages ? 'disabled' : ''} class="pag-btn px-3 py-1.5 rounded-lg border text-xs font-semibold ${currentPage === totalPages ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 cursor-pointer'}">
+            Selanjutnya
+        </button>
+        <button type="button" data-page="${totalPages}" ${currentPage === totalPages ? 'disabled' : ''} class="pag-btn px-2.5 py-1.5 rounded-lg border text-xs font-semibold ${currentPage === totalPages ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 cursor-pointer'}">
+            &raquo;
+        </button>
+    `;
+
+    container.innerHTML = `
+        <div class="flex items-center gap-3">
+            <span class="text-xs text-gray-600">
+                Menampilkan <span class="font-bold text-gray-800">${startNum}</span> - <span class="font-bold text-gray-800">${endNum}</span> dari <span class="font-bold text-gray-800">${totalItems}</span> data
+            </span>
+            <div class="flex items-center gap-1.5 ml-2 border-l border-gray-200 pl-3">
+                <label class="text-xs text-gray-500">Per halaman:</label>
+                <select class="pag-size-select text-xs border border-gray-300 rounded-md px-2 py-1 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                    <option value="10" ${pageSize === 10 ? 'selected' : ''}>10</option>
+                    <option value="25" ${pageSize === 25 ? 'selected' : ''}>25</option>
+                    <option value="50" ${pageSize === 50 ? 'selected' : ''}>50</option>
+                    <option value="100" ${pageSize === 100 ? 'selected' : ''}>100</option>
+                </select>
+            </div>
+        </div>
+        <div class="flex items-center gap-1 flex-wrap">
+            ${buttonsHTML}
+        </div>
+    `;
+
+    container.querySelectorAll('.pag-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (btn.disabled) return;
+            const page = parseInt(btn.getAttribute('data-page'));
+            if (page && page !== currentPage) {
+                onPageChange(page);
+            }
+        });
+    });
+
+    const sizeSelect = container.querySelector('.pag-size-select');
+    if (sizeSelect) {
+        sizeSelect.addEventListener('change', (e) => {
+            const newSize = parseInt(e.target.value);
+            if (newSize) {
+                onSizeChange(newSize);
+            }
+        });
+    }
+}
+
+// Render log presensi masuk
+function renderLogMasuk() {
+    renderPaginatedTable('log-masuk-body', logMasukData, (item, index) => {
         const screenshot = item.has_sm ? 
             `<div class="text-center"><button type="button" class="bg-blue-100 text-blue-700 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider hover:bg-blue-200 transition-colors" onclick="loadAndShowEvidence('${item.id}', 'masuk', 'Bukti Masuk')">Lihat Foto</button></div>` :
             '<span class="text-gray-400">-</span>';
@@ -4828,36 +5189,27 @@ function renderLogMasuk() {
         const tanggal = item.jam_masuk_iso ? new Date(item.jam_masuk_iso).toLocaleDateString('id-ID') : '-';
         const lokasi = item.lokasi_masuk || '-';
         
-        tr.innerHTML = `
-            <td class="py-2 px-4 text-center">${index + 1}</td>
-            <td class="py-2 px-4 text-center">${tanggal}</td>
-            <td class="py-2 px-4">${item.nama || '-'}</td>
-            <td class="py-2 px-4 text-center">${item.startup || '-'}</td>
-            <td class="py-2 px-4 text-center">${jamMasuk}</td>
-            <td class="py-2 px-4">${lokasi}</td>
-            <td class="py-2 px-4 text-center">${screenshot}</td>
+        return `
+            <tr class="border-b hover:bg-gray-50">
+                <td class="py-2 px-4 text-center">${index + 1}</td>
+                <td class="py-2 px-4 text-center">${tanggal}</td>
+                <td class="py-2 px-4">${item.nama || '-'}</td>
+                <td class="py-2 px-4 text-center">${item.startup || '-'}</td>
+                <td class="py-2 px-4 text-center">${jamMasuk}</td>
+                <td class="py-2 px-4">${lokasi}</td>
+                <td class="py-2 px-4 text-center">${screenshot}</td>
+            </tr>
         `;
-        body.appendChild(tr);
+    }, {
+        colSpan: 7,
+        emptyMessage: 'Belum ada presensi masuk hari ini',
+        onPageChange: renderLogMasuk
     });
 }
 
 // Render log presensi pulang
 function renderLogPulang() {
-    const body = qs('#log-pulang-body');
-    if (!body) return;
-    
-    console.log('Rendering log pulang with data:', logPulangData);
-    
-    body.innerHTML = '';
-    if (logPulangData.length === 0) {
-        body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-gray-500">Belum ada presensi pulang hari ini</td></tr>';
-        return;
-    }
-    
-    logPulangData.forEach((item, index) => {
-        const tr = document.createElement('tr');
-        tr.className = 'border-b hover:bg-gray-50';
-        
+    renderPaginatedTable('log-pulang-body', logPulangData, (item, index) => {
         const screenshot = item.has_sp ? 
             `<div class="text-center"><button type="button" class="bg-blue-100 text-blue-700 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider hover:bg-blue-200 transition-colors" onclick="loadAndShowEvidence('${item.id}', 'pulang', 'Bukti Pulang')">Lihat Foto</button></div>` :
             '<span class="text-gray-400">-</span>';
@@ -4866,16 +5218,21 @@ function renderLogPulang() {
         const tanggal = item.jam_pulang_iso ? new Date(item.jam_pulang_iso).toLocaleDateString('id-ID') : '-';
         const lokasi = item.lokasi_pulang || '-';
         
-        tr.innerHTML = `
-            <td class="py-2 px-4 text-center">${index + 1}</td>
-            <td class="py-2 px-4 text-center">${tanggal}</td>
-            <td class="py-2 px-4">${item.nama || '-'}</td>
-            <td class="py-2 px-4 text-center">${item.startup || '-'}</td>
-            <td class="py-2 px-4 text-center">${jamPulang}</td>
-            <td class="py-2 px-4">${lokasi}</td>
-            <td class="py-2 px-4 text-center">${screenshot}</td>
+        return `
+            <tr class="border-b hover:bg-gray-50">
+                <td class="py-2 px-4 text-center">${index + 1}</td>
+                <td class="py-2 px-4 text-center">${tanggal}</td>
+                <td class="py-2 px-4">${item.nama || '-'}</td>
+                <td class="py-2 px-4 text-center">${item.startup || '-'}</td>
+                <td class="py-2 px-4 text-center">${jamPulang}</td>
+                <td class="py-2 px-4">${lokasi}</td>
+                <td class="py-2 px-4 text-center">${screenshot}</td>
+            </tr>
         `;
-        body.appendChild(tr);
+    }, {
+        colSpan: 7,
+        emptyMessage: 'Belum ada presensi pulang hari ini',
+        onPageChange: renderLogPulang
     });
 }
 
@@ -5646,9 +6003,8 @@ async function renderMembers(){
     const members = (j.data||[]);
     const term = (qs('#search-member')?.value||'').toLowerCase();
     const filtered = members.filter(m=> (m.nama||'').toLowerCase().includes(term) || (m.nim||'').toLowerCase().includes(term));
-    const body = qs('#table-members-body'); if(!body) return; body.innerHTML='';
-    if(filtered.length===0){ body.innerHTML = `<tr><td colspan="7" class="text-center py-4">Tidak ada data member.</td></tr>`; return; }
-    filtered.forEach(m=>{
+    
+    renderPaginatedTable('table-members-body', filtered, (m) => {
         const tr = document.createElement('tr'); tr.className='border-b hover:bg-gray-50';
         tr.innerHTML = `
             <td class="py-2 px-4">
@@ -5673,18 +6029,24 @@ async function renderMembers(){
                 <button class="btn-work-schedule text-green-600 font-bold ml-2" data-id="${m.id}" data-name="${m.nama}" title="Kelola Jadwal Kerja"><i class="fi fi-sr-calendar"></i></button>
                 <button class="btn-delete-member text-red-600 font-bold ml-2" data-id="${m.id}" title="Hapus"><i class="fi fi-ss-trash"></i></button>
             </td>`;
-        body.appendChild(tr);
         if (m.has_foto) {
-            const el = qs(`#member-photo-container-${m.id}`);
-            if (el && window.memberPhotoObserver) window.memberPhotoObserver.observe(el);
-            else if (el && !window.memberPhotoObserver && window.lazyLoadMemberPhoto) window.lazyLoadMemberPhoto(m.id, `member-photo-container-${m.id}`);
+            setTimeout(() => {
+                const el = qs(`#member-photo-container-${m.id}`);
+                if (el && window.memberPhotoObserver) window.memberPhotoObserver.observe(el);
+                else if (el && !window.memberPhotoObserver && window.lazyLoadMemberPhoto) window.lazyLoadMemberPhoto(m.id, `member-photo-container-${m.id}`);
+            }, 0);
         }
+        return tr;
+    }, {
+        colSpan: 7,
+        emptyMessage: 'Tidak ada data member.',
+        onPageChange: renderMembers
     });
 }
 
 // End of member photo setup
 
-qs('#search-member') && qs('#search-member').addEventListener('input', renderMembers);
+qs('#search-member') && qs('#search-member').addEventListener('input', () => { resetTablePage('table-members-body'); renderMembers(); });
 
 const memberModal = qs('#member-modal');
 const btnAddMember = qs('#btn-add-member');
@@ -6583,16 +6945,14 @@ async function renderLaporan(){
         }
     });
     
-        const body = qs('#table-laporan-body'); if(!body) return; body.innerHTML='';
-    if(filtered.length===0){ body.innerHTML = `<tr><td colspan="12" class="text-center py-4">Tidak ada data kehadiran.</td></tr>`; return; }
-    filtered.forEach(att=>{
+        renderPaginatedTable('table-laporan-body', filtered, (att) => {
         const d = new Date(att.jam_masuk_iso);
         const tanggal = isNaN(d.getTime()) ? '-' : d.toLocaleDateString('id-ID', { year:'numeric', month:'long', day:'numeric'});
         const statusClass = att.status === 'terlambat' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700';
         const statusText = att.status === 'terlambat' ? 'Terlambat' : 'On Time';
 
         let dailyReportStatus = 'Belum ada laporan';
-        let dailyReportClass = 'badge-orange'; // Changed from badge-gray to badge-orange for "Belum ada laporan"
+        let dailyReportClass = 'badge-orange';
         if(att.daily_report_status) {
             dailyReportStatus = att.daily_report_status === 'approved' ? 'Sudah di-approve' : (att.daily_report_status === 'disapproved' ? 'Tidak di-approve' : 'Belum di-approve');
             dailyReportClass = att.daily_report_status === 'approved' ? 'badge-green' : (att.daily_report_status === 'disapproved' ? 'badge-red' : 'badge-blue');
@@ -6600,33 +6960,23 @@ async function renderLaporan(){
 
         const tr = document.createElement('tr'); tr.className='border-b hover:bg-gray-50';
         
-        // Format jam untuk tampilan (hanya jam:menit)
         const formatTime = (timeStr) => {
             if (!timeStr || timeStr === '-') return '-';
             if (timeStr === 'izin' || timeStr === 'sakit' || timeStr === 'wfa') return timeStr;
-            // Extract only HH:MM from HH:MM:SS
             return timeStr.substring(0, 5);
         };
         
         const jamMasuk = formatTime(att.jam_masuk);
         const jamPulang = formatTime(att.jam_pulang);
         
-        // NEW: Robust Bukti Display Logic (10-Day Policy)
         const createBuktiDisplay = (attId, hasLandmarkFlag, landmarkData, fotoData, ekspresi, mode, attKet, dateIso, timeValue) => {
-            // 0. If no time recorded (e.g. not yet clocked out), show a simple strip
             if (!timeValue || timeValue === '-') {
                 return '<div class="text-center text-gray-400">-</div>';
             }
             
             const isExpired = !isWithin10WorkingDays(dateIso);
             const label = translateExpression(ekspresi || 'neutral');
-            
-            // DEBUG
-            if (attId === 2451 || attId === 2447) {
-                console.log(`[BUKTI] ID ${attId}, expired: ${isExpired}, fotoData type: ${typeof fotoData}, has value: ${!!fotoData}, first 30 chars: ${fotoData ? fotoData.substring(0, 30) : 'NULL'}`);
-            }
 
-            // 1. Policy: If expired (>10 working days), show Expired button with expression
             if (isExpired) {
                 return `<div class="text-center">
                     <button type="button" 
@@ -6638,13 +6988,10 @@ async function renderLaporan(){
                 </div>`;
             }
 
-            // 2. Izin/Sakit: show special marker
             if (attKet === 'izin' || attKet === 'sakit') {
                 return `<div class="text-center text-gray-400 text-xs italic bg-gray-50 py-1 rounded-lg border border-dashed border-gray-200">Izin/Sakit</div>`;
             }
 
-            // 3. Within 10 days: Show Screenshot Thumbnail (Prioritize existing photo data)
-            // Check: fotoData must be a non-empty string
             if (fotoData && typeof fotoData === 'string' && fotoData.length > 10) {
                 let imgSrc;
                 if (fotoData.startsWith('data:image/')) {
@@ -6656,16 +7003,11 @@ async function renderLaporan(){
                 } else if (fotoData.startsWith('attendance/')) {
                     imgSrc = '/storage/' + fotoData;
                 } else {
-                    // Assume it's a filename in attendance folder
                     const cleanFoto = fotoData.trim();
                     if (cleanFoto === '' || cleanFoto === 'attendance/') {
                         return `<div class="text-center text-gray-400">-</div>`;
                     }
                     imgSrc = '/storage/attendance/' + cleanFoto;
-                }
-                
-                if (attId === 2451 || attId === 2447) {
-                    console.log(`[BUKTI-IMG] ID ${attId}, mode: ${mode}, imgSrc starts with: ${imgSrc.substring(0, 50)}`);
                 }
                 
                 return `<div class="flex justify-center">
@@ -6676,7 +7018,6 @@ async function renderLaporan(){
                 </div>`;
             }
 
-            // 4. Has screenshot/photo or landmark but no pre-loaded photo data
             if (hasLandmarkFlag) {
                 const containerId = `proof-${mode}-${attId}`;
                 const type = mode === 'masuk' ? 'masuk' : 'pulang';
@@ -6695,7 +7036,6 @@ async function renderLaporan(){
                 return html;
             }
 
-            // 5. No photo/landmark - show expression as clickable badge
             return `<div class="flex justify-center">
                 <button type="button" 
                     class="bg-blue-50 hover:bg-blue-100 text-blue-600 px-2 py-1 rounded-lg text-[10px] font-semibold uppercase transition-all shadow-sm border border-blue-200 cursor-pointer"
@@ -6708,7 +7048,6 @@ async function renderLaporan(){
         const buktiMasuk  = createBuktiDisplay(att.id, att.has_sm, att.landmark_masuk, (att.foto_masuk || att.screenshot_masuk), att.ekspresi_masuk, 'masuk', att.ket, att.jam_masuk_iso, jamMasuk);
         const buktiPulang = createBuktiDisplay(att.id, att.has_sp, att.landmark_pulang, (att.foto_pulang || att.screenshot_pulang), att.ekspresi_pulang, 'pulang', att.ket, att.jam_pulang_iso || att.jam_masuk_iso, jamPulang);
         
-        // Ket button logic with oval styling and colors
         let ketButton = '';
         if (att.ket && (att.ket === 'wfo' || att.ket === 'wfa' || att.ket === 'izin' || att.ket === 'sakit' || att.ket === 'overtime')) {
             const ketColors = {
@@ -6738,30 +7077,37 @@ async function renderLaporan(){
             <td class="py-2 px-4"><span class="badge ${dailyReportClass}">${dailyReportStatus}</span></td>
             <td class="py-2 px-4">
                 <button title="Lihat Laporan" class="btn-view-dr-admin text-blue-600 font-bold" data-user="${att.user_id}" data-date="${(att.jam_masuk_iso||'').slice(0,10)}"><i class="fi fi-ss-eye"></i></button>
-                <button title="Edit" class="btn-edit-att text-yellow-600 font-bold ml-1" data-json='${JSON.stringify(att).replace(/'/g,"&apos;")}'><i class="fi fi-sr-pen-square"></i></button>
+                <button title="Edit" class="btn-edit-att text-yellow-600 font-bold ml-1" data-json='${JSON.stringify(att).replace(/'/g,"&apos;")} '><i class="fi fi-sr-pen-square"></i></button>
                 <button title="Hapus" class="btn-delete-laporan text-red-600 font-bold ml-1" data-id="${att.id}"><i class="fi fi-ss-trash"></i></button>
             </td>`;
-        body.appendChild(tr);
 
-        // Render landmark canvases
         if (att.landmark_masuk) {
-            const cMasuk = document.getElementById(`lm-thumb-${att.id}-masuk`);
-            if (cMasuk) {
-                renderLandmarkOnCanvas(cMasuk, att.landmark_masuk, 80, 60);
-                cMasuk._lmData = att.landmark_masuk;
-            }
+            setTimeout(() => {
+                const cMasuk = document.getElementById(`lm-thumb-${att.id}-masuk`);
+                if (cMasuk) {
+                    renderLandmarkOnCanvas(cMasuk, att.landmark_masuk, 80, 60);
+                    cMasuk._lmData = att.landmark_masuk;
+                }
+            }, 0);
         }
         if (att.landmark_pulang) {
-            const cPulang = document.getElementById(`lm-thumb-${att.id}-pulang`);
-            if (cPulang) {
-                renderLandmarkOnCanvas(cPulang, att.landmark_pulang, 80, 60);
-                cPulang._lmData = att.landmark_pulang;
-            }
+            setTimeout(() => {
+                const cPulang = document.getElementById(`lm-thumb-${att.id}-pulang`);
+                if (cPulang) {
+                    renderLandmarkOnCanvas(cPulang, att.landmark_pulang, 80, 60);
+                    cPulang._lmData = att.landmark_pulang;
+                }
+            }, 0);
         }
+        return tr;
+    }, {
+        colSpan: 12,
+        emptyMessage: 'Tidak ada data kehadiran.',
+        onPageChange: renderLaporan
     });
 }
 
-[qs('#search-laporan'), qs('#filter-startup'), qs('#filter-tanggal-mulai'), qs('#filter-tanggal-selesai'), qs('#sort-presensi'), qs('#filter-status'), qs('#filter-ket'), qs('#filter-laporan')].forEach(el=>{ if(el) el.addEventListener('input', renderLaporan); });
+[qs('#search-laporan'), qs('#filter-startup'), qs('#filter-tanggal-mulai'), qs('#filter-tanggal-selesai'), qs('#sort-presensi'), qs('#filter-status'), qs('#filter-ket'), qs('#filter-laporan')].forEach(el=>{ if(el) el.addEventListener('input', () => { resetTablePage('table-laporan-body'); renderLaporan(); }); });
 
 // NEW: Toggle today/all button
 qs('#btn-toggle-today') && qs('#btn-toggle-today').addEventListener('click', function() {
@@ -7103,12 +7449,16 @@ async function renderManualHolidays(){
     const r = await fetch(`?ajax=admin_get_manual_holidays&start=${start}&end=${end}`);
     const j = await r.json();
     const list = j.data||[];
-    const body = qs('#mh-body'); body.innerHTML='';
-    if(list.length===0){ body.innerHTML = '<tr><td colspan="3" class="text-center py-3">Belum ada data.</td></tr>'; return; }
-    list.forEach(it=>{
+    const tbodyId = qs('#mh-body') ? 'mh-body' : 'mh-table-body';
+    
+    renderPaginatedTable(tbodyId, list, (it) => {
         const tr=document.createElement('tr'); tr.className='border-b';
         tr.innerHTML = `<td class="py-2 px-3">${it.date}</td><td class="py-2 px-3">${it.name}</td><td class="py-2 px-3 text-center"><button class="mh-del bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded" data-id="${it.id}">Hapus</button></td>`;
-        body.appendChild(tr);
+        return tr;
+    }, {
+        colSpan: 3,
+        emptyMessage: 'Belum ada data.',
+        onPageChange: renderManualHolidays
     });
 }
 
@@ -9491,15 +9841,13 @@ async function renderAdminMonthly(){
             });
         }
     }
-    const body = qs('#am-body'); if(!body) return; body.innerHTML='';
     const payload = { term: qs('#am-search')?.value||'', startup: qs('#am-startup')?.value||'', month: qs('#am-month')?.value||'', year: qs('#am-year')?.value||'' };
     const r = await api('?ajax=admin_get_monthly_reports', payload);
     const j = r.data||[];
-    // Filter out draft reports from admin view
     const filteredReports = j.filter(it => it.status !== 'draft');
-    if(filteredReports.length===0){ body.innerHTML = `<tr><td colspan="6" class="text-center py-4">Tidak ada data.</td></tr>`; return; }
     const monthName=(m)=>['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'][m-1];
-    filteredReports.forEach(it=>{
+
+    renderPaginatedTable('am-body', filteredReports, (it) => {
         const tr=document.createElement('tr'); tr.className='border-b hover:bg-gray-50';
         const label = `${monthName(parseInt(it.month))} ${it.year}`;
         const detailBtn = `<button class="btn-view-month-detail text-blue-600 font-bold text-center" data-id="${it.id}"><i class="fi fi-ss-eye text-xl"></i></button>`;
@@ -9515,11 +9863,15 @@ async function renderAdminMonthly(){
             <td class="py-2 px-4">${detailBtn}</td>
             <td class="py-2 px-4">${statusBadge}</td>
             <td class="py-2 px-4">${actions}</td>`;
-        body.appendChild(tr);
+        return tr;
+    }, {
+        colSpan: 6,
+        emptyMessage: 'Tidak ada data.',
+        onPageChange: renderAdminMonthly
     });
 }
 
-['#am-search','#am-startup','#am-month','#am-year'].forEach(sel=>{ if(qs(sel)) qs(sel).addEventListener('input', renderAdminMonthly); });
+['#am-search','#am-startup','#am-month','#am-year'].forEach(sel=>{ if(qs(sel)) qs(sel).addEventListener('input', () => { resetTablePage('am-body'); renderAdminMonthly(); }); });
 qs('#am-reset') && qs('#am-reset').addEventListener('click', ()=>{ if(qs('#am-search')) qs('#am-search').value=''; if(qs('#am-startup')) qs('#am-startup').value=''; if(qs('#am-month')) qs('#am-month').value=''; if(qs('#am-year')) qs('#am-year').value=''; renderAdminMonthly(); });
 
 // Export event handlers (Delegated)
@@ -10917,10 +11269,8 @@ function renderKPITable(kpiData) {
     
     if (!tbody || !loading || !empty || !periodRange) return;
     
-    // Hide loading
     loading.style.display = 'none';
     
-    // Update period range
     const filterType = kpiFilterType ? kpiFilterType.value : 'period';
     if (filterType === 'monthly') {
         const month = kpiFilterMonth ? kpiFilterMonth.value : '';
@@ -10938,26 +11288,17 @@ function renderKPITable(kpiData) {
             periodRange.textContent = 'Seluruh Periode';
         }
     }
+
+    if (!kpiData.kpi_data || kpiData.kpi_data.length === 0) {
+        empty.style.display = 'block';
+        tbody.innerHTML = '';
+        renderPaginationUI('kpi-table-body', 0, 1, 10, 0, 0, () => {}, () => {});
+        return;
+    }
     
-    // // Add note about individual employee periods
-    // const periodNote = document.createElement('p');
-    // periodNote.className = 'text-xs text-gray-500 mt-1';
-    // periodNote.textContent = filterType === 'monthly' 
-    //     ? 'Perhitungan KPI untuk bulan yang dipilih (disesuaikan dengan tanggal registrasi masing-masing pegawai)'
-    //     : 'Periode perhitungan disesuaikan dengan tanggal registrasi masing-masing pegawai';
-    // periodRange.parentNode.appendChild(periodNote);
-    
-    // if (!kpiData.kpi_data || kpiData.kpi_data.length === 0) {
-    //     empty.style.display = 'block';
-    //     tbody.innerHTML = '';
-    //     return;
-    // }
-    
-    // Hide empty message
     empty.style.display = 'none';
     
-    // Render table rows
-    tbody.innerHTML = kpiData.kpi_data.map((employee, index) => {
+    renderPaginatedTable('kpi-table-body', kpiData.kpi_data, (employee, index) => {
         const statusClass = getKPIStatusClass(employee.kpi_score);
         const statusText = getKPIStatusText(employee.kpi_score);
         
@@ -10993,7 +11334,11 @@ function renderKPITable(kpiData) {
                 </td>
             </tr>
         `;
-    }).join('');
+    }, {
+        colSpan: 12,
+        emptyMessage: 'Tidak ada data KPI.',
+        onPageChange: () => renderKPITable(kpiData)
+    });
 }
 
 function getKPIStatusClass(score) {
@@ -11724,11 +12069,12 @@ qs('#work-schedule-save') && qs('#work-schedule-save').addEventListener('click',
         if (filtered.length === 0) {
             tableBody.innerHTML = '';
             emptyState?.classList.remove('hidden');
+            renderPaginationUI('table-requests-body', 0, 1, 10, 0, 0, () => {}, () => {});
             return;
         }
 
         emptyState?.classList.add('hidden');
-        tableBody.innerHTML = filtered.map(i => `
+        renderPaginatedTable('table-requests-body', filtered, (i) => `
             <tr class="hover:bg-gray-50/50 transition-colors">
                 <td class="px-6 py-4">
                     <div class="flex items-center gap-3">
@@ -11760,7 +12106,11 @@ qs('#work-schedule-save') && qs('#work-schedule-save').addEventListener('click',
                     </button>
                 </td>
             </tr>
-        `).join('');
+        `, {
+            colSpan: 5,
+            emptyMessage: 'Tidak ada request.',
+            onPageChange: renderHelpRequests
+        });
     }
     window.renderHelpRequests = renderHelpRequests;
 

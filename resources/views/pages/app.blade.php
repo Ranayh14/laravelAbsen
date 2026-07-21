@@ -590,6 +590,198 @@
     </div>
 
 <script>
+// ==========================================
+// UNIVERSAL TABLE PAGINATION ENGINE
+// ==========================================
+window.tablePaginationState = window.tablePaginationState || {};
+
+window.resetTablePage = function(tbodyId) {
+    if (window.tablePaginationState && window.tablePaginationState[tbodyId]) {
+        window.tablePaginationState[tbodyId].currentPage = 1;
+    }
+};
+
+window.renderPaginatedTable = function(tbodyId, items, renderFn, options = {}) {
+    const body = qs('#' + tbodyId);
+    if (!body) return;
+
+    if (!window.tablePaginationState[tbodyId]) {
+        window.tablePaginationState[tbodyId] = {
+            currentPage: 1,
+            pageSize: options.pageSize || 10
+        };
+    }
+
+    const state = window.tablePaginationState[tbodyId];
+    const pageSize = state.pageSize;
+    const totalItems = items.length;
+    const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+
+    if (state.currentPage > totalPages) state.currentPage = totalPages;
+    if (state.currentPage < 1) state.currentPage = 1;
+
+    const currentPage = state.currentPage;
+    body.innerHTML = '';
+
+    if (totalItems === 0) {
+        const colSpan = options.colSpan || 12;
+        const emptyMsg = options.emptyMessage || 'Tidak ada data.';
+        body.innerHTML = `<tr><td colspan="${colSpan}" class="text-center py-6 text-gray-500 font-medium">${emptyMsg}</td></tr>`;
+        window.renderPaginationUI(tbodyId, 0, 1, pageSize, 0, 0, () => {}, () => {});
+        return;
+    }
+
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = Math.min(startIndex + pageSize, totalItems);
+    const pageItems = items.slice(startIndex, endIndex);
+
+    pageItems.forEach((item, index) => {
+        const actualIndex = startIndex + index;
+        const row = renderFn(item, actualIndex);
+        if (typeof row === 'string') {
+            body.insertAdjacentHTML('beforeend', row);
+        } else if (row instanceof HTMLElement) {
+            body.appendChild(row);
+        }
+    });
+
+    window.renderPaginationUI(
+        tbodyId,
+        totalItems,
+        currentPage,
+        pageSize,
+        startIndex,
+        endIndex,
+        (newPage) => {
+            state.currentPage = newPage;
+            if (options.onPageChange) options.onPageChange();
+        },
+        (newSize) => {
+            state.pageSize = newSize;
+            state.currentPage = 1;
+            if (options.onPageChange) options.onPageChange();
+        }
+    );
+};
+
+window.renderPaginationUI = function(tbodyId, totalItems, currentPage, pageSize, startIndex, endIndex, onPageChange, onSizeChange) {
+    const body = qs('#' + tbodyId);
+    if (!body) return;
+
+    const table = body.closest('table');
+    if (!table) return;
+
+    const tableWrapper = table.closest('.overflow-x-auto') || table.parentElement;
+    const paginationId = tbodyId + '-pagination';
+    let container = document.getElementById(paginationId);
+
+    if (!container) {
+        container = document.createElement('div');
+        container.id = paginationId;
+        container.className = 'table-pagination-container flex flex-col sm:flex-row items-center justify-between gap-4 mt-4 px-4 py-3 bg-white border border-gray-200 rounded-xl shadow-xs text-sm text-gray-600';
+        tableWrapper.insertAdjacentElement('afterend', container);
+    }
+
+    if (totalItems === 0) {
+        container.innerHTML = `<div class="text-xs text-gray-500 italic">Menampilkan 0 data</div>`;
+        return;
+    }
+
+    const totalPages = Math.ceil(totalItems / pageSize);
+    const startNum = startIndex + 1;
+    const endNum = endIndex;
+
+    let pageNumbers = [];
+    if (totalPages <= 7) {
+        for (let i = 1; i <= totalPages; i++) pageNumbers.push(i);
+    } else {
+        if (currentPage <= 4) {
+            pageNumbers = [1, 2, 3, 4, 5, '...', totalPages];
+        } else if (currentPage >= totalPages - 3) {
+            pageNumbers = [1, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+        } else {
+            pageNumbers = [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages];
+        }
+    }
+
+    let buttonsHTML = `
+        <button type="button" data-page="1" ${currentPage === 1 ? 'disabled' : ''} class="pag-btn px-2.5 py-1.5 rounded-lg border text-xs font-semibold ${currentPage === 1 ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 cursor-pointer'}">
+            &laquo;
+        </button>
+        <button type="button" data-page="${currentPage - 1}" ${currentPage === 1 ? 'disabled' : ''} class="pag-btn px-3 py-1.5 rounded-lg border text-xs font-semibold ${currentPage === 1 ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 cursor-pointer'}">
+            Sebelumnya
+        </button>
+    `;
+
+    pageNumbers.forEach(p => {
+        if (p === '...') {
+            buttonsHTML += `<span class="px-2 py-1 text-gray-400 text-xs">...</span>`;
+        } else {
+            const isActive = p === currentPage;
+            buttonsHTML += `
+                <button type="button" data-page="${p}" class="pag-btn px-3 py-1.5 rounded-lg border text-xs font-semibold ${isActive ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 cursor-pointer'}">
+                    ${p}
+                </button>
+            `;
+        }
+    });
+
+    buttonsHTML += `
+        <button type="button" data-page="${currentPage + 1}" ${currentPage === totalPages ? 'disabled' : ''} class="pag-btn px-3 py-1.5 rounded-lg border text-xs font-semibold ${currentPage === totalPages ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 cursor-pointer'}">
+            Selanjutnya
+        </button>
+        <button type="button" data-page="${totalPages}" ${currentPage === totalPages ? 'disabled' : ''} class="pag-btn px-2.5 py-1.5 rounded-lg border text-xs font-semibold ${currentPage === totalPages ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 cursor-pointer'}">
+            &raquo;
+        </button>
+    `;
+
+    container.innerHTML = `
+        <div class="flex items-center gap-3">
+            <span class="text-xs text-gray-600">
+                Menampilkan <span class="font-bold text-gray-800">${startNum}</span> - <span class="font-bold text-gray-800">${endNum}</span> dari <span class="font-bold text-gray-800">${totalItems}</span> data
+            </span>
+            <div class="flex items-center gap-1.5 ml-2 border-l border-gray-200 pl-3">
+                <label class="text-xs text-gray-500">Per halaman:</label>
+                <select class="pag-size-select text-xs border border-gray-300 rounded-md px-2 py-1 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                    <option value="10" ${pageSize === 10 ? 'selected' : ''}>10</option>
+                    <option value="25" ${pageSize === 25 ? 'selected' : ''}>25</option>
+                    <option value="50" ${pageSize === 50 ? 'selected' : ''}>50</option>
+                    <option value="100" ${pageSize === 100 ? 'selected' : ''}>100</option>
+                </select>
+            </div>
+        </div>
+        <div class="flex items-center gap-1 flex-wrap">
+            ${buttonsHTML}
+        </div>
+    `;
+
+    container.querySelectorAll('.pag-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (btn.disabled) return;
+            const page = parseInt(btn.getAttribute('data-page'));
+            if (page && page !== currentPage) {
+                onPageChange(page);
+            }
+        });
+    });
+
+    const sizeSelect = container.querySelector('.pag-size-select');
+    if (sizeSelect) {
+        sizeSelect.addEventListener('change', (e) => {
+            const newSize = parseInt(e.target.value);
+            if (newSize) {
+                onSizeChange(newSize);
+            }
+        });
+    }
+};
+
+function resetTablePage(tbodyId) { return window.resetTablePage(tbodyId); }
+function renderPaginatedTable(tbodyId, items, renderFn, options) { return window.renderPaginatedTable(tbodyId, items, renderFn, options); }
+function renderPaginationUI(tbodyId, totalItems, currentPage, pageSize, startIndex, endIndex, onPageChange, onSizeChange) { return window.renderPaginationUI(tbodyId, totalItems, currentPage, pageSize, startIndex, endIndex, onPageChange, onSizeChange); }
+
+
 function showNotif(msg, success=true){
     const bar = qs('#notif-bar');
     bar.textContent = msg;
@@ -2303,16 +2495,22 @@ async function processPresensiRecognition(nim) {
 
 // Members (Admin)
 async function renderMembers(){
-    const j = await api('?ajax=get_members', {}, { cache: false });
+    const j = await api('?ajax=get_members&light=1&no_embeddings=1', {}, { suppressModal: true, cache: true });
     const members = (j.data||[]);
     const term = (qs('#search-member')?.value||'').toLowerCase();
     const filtered = members.filter(m=> (m.nama||'').toLowerCase().includes(term) || (m.nim||'').toLowerCase().includes(term));
-    const body = qs('#table-members-body'); if(!body) return; body.innerHTML='';
-    if(filtered.length===0){ body.innerHTML = `<tr><td colspan="7" class="text-center py-4">Tidak ada data member.</td></tr>`; return; }
-    filtered.forEach(m=>{
+    
+    renderPaginatedTable('table-members-body', filtered, (m) => {
         const tr = document.createElement('tr'); tr.className='border-b hover:bg-gray-50';
         tr.innerHTML = `
-            <td class="py-2 px-4"><img src="${m.foto_base64||''}" alt="Foto ${m.nama||''}" class="h-12 w-12 rounded-full" style="object-fit: contain;"></td>
+            <td class="py-2 px-4">
+                ${m.has_foto ? 
+                    `<div id="member-photo-container-${m.id}" data-id="${m.id}" class="lazy-member-photo h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center overflow-hidden border border-gray-200 cursor-pointer" title="Klik untuk memperbesar">
+                        <i class="fi fi-sr-spinner animate-spin text-gray-400 text-[10px]"></i>
+                    </div>` : 
+                    `<div class="h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 text-[10px] border border-gray-200 leading-tight text-center">No Pic</div>`
+                }
+            </td>
             <td class="py-2 px-4">${m.nim||''}</td>
             <td class="py-2 px-4">${m.nama||''}</td>
             <td class="py-2 px-4">${m.prodi||''}</td>
@@ -2327,11 +2525,22 @@ async function renderMembers(){
                 <button class="btn-work-schedule text-green-600 font-bold ml-2" data-id="${m.id}" data-name="${m.nama}" title="Kelola Jadwal Kerja"><i class="fi fi-sr-calendar"></i></button>
                 <button class="btn-delete-member text-red-600 font-bold ml-2" data-id="${m.id}" title="Hapus"><i class="fi fi-ss-trash"></i></button>
             </td>`;
-        body.appendChild(tr);
+        if (m.has_foto) {
+            setTimeout(() => {
+                const el = qs(`#member-photo-container-${m.id}`);
+                if (el && window.memberPhotoObserver) window.memberPhotoObserver.observe(el);
+                else if (el && !window.memberPhotoObserver && window.lazyLoadMemberPhoto) window.lazyLoadMemberPhoto(m.id, `member-photo-container-${m.id}`);
+            }, 0);
+        }
+        return tr;
+    }, {
+        colSpan: 7,
+        emptyMessage: 'Tidak ada data member.',
+        onPageChange: renderMembers
     });
 }
 
-qs('#search-member') && qs('#search-member').addEventListener('input', renderMembers);
+qs('#search-member') && qs('#search-member').addEventListener('input', () => { resetTablePage('table-members-body'); renderMembers(); });
 
 const memberModal = qs('#member-modal');
 const btnAddMember = qs('#btn-add-member');
@@ -3155,21 +3364,14 @@ async function renderLaporan(){
         }
     });
     
-        const body = qs('#table-laporan-body'); if(!body) return; body.innerHTML='';
-    if(filtered.length===0){ body.innerHTML = `<tr><td colspan="12" class="text-center py-4">Tidak ada data kehadiran.</td></tr>`; return; }
-    filtered.forEach((att, idx)=>{
-        // DEBUG: Log first few records
-        if (idx < 3) {
-            console.log(`[LAPORAN] ID ${att.id}, foto_masuk: ${att.foto_masuk ? att.foto_masuk.substring(0, 30) + '...' : 'NULL'}, screenshot_masuk: ${att.screenshot_masuk ? 'YES' : 'NO'}`);
-        }
-        
+        renderPaginatedTable('table-laporan-body', filtered, (att) => {
         const d = new Date(att.jam_masuk_iso);
         const tanggal = isNaN(d.getTime()) ? '-' : d.toLocaleDateString('id-ID', { year:'numeric', month:'long', day:'numeric'});
         const statusClass = att.status === 'terlambat' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700';
         const statusText = att.status === 'terlambat' ? 'Terlambat' : 'On Time';
 
         let dailyReportStatus = 'Belum ada laporan';
-        let dailyReportClass = 'badge-orange'; // Changed from badge-gray to badge-orange for "Belum ada laporan"
+        let dailyReportClass = 'badge-orange';
         if(att.daily_report_status) {
             dailyReportStatus = att.daily_report_status === 'approved' ? 'Sudah di-approve' : (att.daily_report_status === 'disapproved' ? 'Tidak di-approve' : 'Belum di-approve');
             dailyReportClass = att.daily_report_status === 'approved' ? 'badge-green' : (att.daily_report_status === 'disapproved' ? 'badge-red' : 'badge-blue');
@@ -3177,27 +3379,23 @@ async function renderLaporan(){
 
         const tr = document.createElement('tr'); tr.className='border-b hover:bg-gray-50';
         
-        // Format jam untuk tampilan (hanya jam:menit)
         const formatTime = (timeStr) => {
             if (!timeStr || timeStr === '-') return '-';
             if (timeStr === 'izin' || timeStr === 'sakit' || timeStr === 'wfa') return timeStr;
-            // Extract only HH:MM from HH:MM:SS
             return timeStr.substring(0, 5);
         };
         
         const jamMasuk = formatTime(att.jam_masuk);
         const jamPulang = formatTime(att.jam_pulang);
         
-        // Render landmark canvas thumbnail inline in the table row
-        const createBuktiDisplay = (attId, hasLandmark, landmarkData, ekspresi, mode, attKet, dateIso, photoData) => {
-            if (attKet === 'izin' || attKet === 'sakit') {
-                return '<div class="text-center">-</div>';
+        const createBuktiDisplay = (attId, hasLandmarkFlag, landmarkData, fotoData, ekspresi, mode, attKet, dateIso, timeValue) => {
+            if (!timeValue || timeValue === '-') {
+                return '<div class="text-center text-gray-400">-</div>';
             }
             
             const isExpired = !isWithin10WorkingDays(dateIso);
-            const label = ekspresi || 'Netral';
-            
-            // 1. Policy: If expired (>10 working days), show Expired button with expression
+            const label = translateExpression(ekspresi || 'neutral');
+
             if (isExpired) {
                 return `<div class="text-center">
                     <button type="button" 
@@ -3209,76 +3407,74 @@ async function renderLaporan(){
                 </div>`;
             }
 
-            // CASE 2: NOT EXPIRED - Show photo if available
-            if (photoData) {
+            if (attKet === 'izin' || attKet === 'sakit') {
+                return `<div class="text-center text-gray-400 text-xs italic bg-gray-50 py-1 rounded-lg border border-dashed border-gray-200">Izin/Sakit</div>`;
+            }
+
+            if (fotoData && typeof fotoData === 'string' && fotoData.length > 10) {
                 let imgSrc;
-                if (photoData.startsWith('data:image/')) {
-                    imgSrc = photoData;
-                } else if (photoData.startsWith('public/')) {
-                    imgSrc = '/' + photoData.substring(7);
-                } else if (photoData.startsWith('storage/')) {
-                    imgSrc = '/' + photoData;
-                } else if (photoData.startsWith('attendance/')) {
-                    imgSrc = '/storage/' + photoData;
+                if (fotoData.startsWith('data:image/')) {
+                    imgSrc = fotoData;
+                } else if (fotoData.startsWith('public/')) {
+                    imgSrc = '/' + fotoData.substring(7);
+                } else if (fotoData.startsWith('storage/')) {
+                    imgSrc = '/' + fotoData;
+                } else if (fotoData.startsWith('attendance/')) {
+                    imgSrc = '/storage/' + fotoData;
                 } else {
-                    // Assume it's a filename in attendance folder
-                    imgSrc = '/storage/attendance/' + photoData;
+                    const cleanFoto = fotoData.trim();
+                    if (cleanFoto === '' || cleanFoto === 'attendance/') {
+                        return `<div class="text-center text-gray-400">-</div>`;
+                    }
+                    imgSrc = '/storage/attendance/' + cleanFoto;
                 }
-                return `<div class="flex justify-center group/img relative">
+                
+                return `<div class="flex justify-center">
                     <img src="${imgSrc}" 
-                         class="w-16 h-12 object-cover rounded-lg border-2 border-indigo-100 shadow-sm hover:scale-150 transition-transform duration-300 z-10 cursor-pointer"
-                         onclick="showImageModal('${imgSrc}', 'Bukti ${mode === 'masuk' ? 'Masuk' : 'Pulang'} - ${attId}')"
-                         onerror="this.onerror=null; this.src='https://ui-avatars.com/api/?name=Err&background=fee2e2&color=ef4444';">
+                        class="w-12 h-10 object-cover rounded-lg border border-gray-200 shadow-sm cursor-pointer hover:scale-110 transition-transform" 
+                        onclick="showScreenshotModal('${imgSrc}', 'Bukti ${mode === 'masuk' ? 'Masuk' : 'Pulang'}')"
+                        onerror="this.onerror=null; this.src='https://ui-avatars.com/api/?name=Err&background=fee2e2&color=ef4444';">
                 </div>`;
             }
 
-            // CASE 3: NOT EXPIRED but has landmark data in payload
-            if (hasLandmark && landmarkData) {
-                // Return placeholder; canvas rendered after DOM insertion
-                const canvasId = `lm-thumb-${attId}-${mode}`;
-                return `<div class="flex justify-center">
-                    <canvas id="${canvasId}" width="80" height="60"
-                        style="border-radius:6px;cursor:pointer;border:2px solid #334155;background:#0f172a"
-                        title="Klik untuk melihat detail landmark wajah"
-                        onclick="showAdminLandmarkModal(this._lmData,'Bukti ${mode==='masuk'?'Masuk':'Pulang'} - ${attId}')"
-                    ></canvas>
+            if (hasLandmarkFlag) {
+                const containerId = `proof-${mode}-${attId}`;
+                const type = mode === 'masuk' ? 'masuk' : 'pulang';
+                const html = `<div id="${containerId}" data-id="${attId}" data-type="${type}" class="lazy-evidence text-center w-12 h-10 mx-auto bg-gray-100 rounded-lg flex items-center justify-center overflow-hidden cursor-pointer border border-gray-200 shadow-sm" title="Klik untuk memperbesar">
+                    <i class="fi fi-rr-spinner animate-spin text-gray-400 text-[10px]"></i>
                 </div>`;
+                
+                setTimeout(() => {
+                    const el = document.getElementById(containerId);
+                    if (el) {
+                        if (window.evidenceObserver) window.evidenceObserver.observe(el);
+                        else if (window.loadLazyProof) window.loadLazyProof(attId, type, containerId);
+                    }
+                }, 100);
+                
+                return html;
             }
-            
-            // CASE 4: NOT EXPIRED but landmark flag is set (need to load)
-            if (hasLandmark) {
-                // has_sm/has_sp = 1 but data not in payload yet → use load button
-                const title = mode === 'masuk' ? 'Bukti Masuk' : 'Bukti Pulang';
-                return `<div class="text-center">
-                    <button type="button" class="text-indigo-600 hover:text-indigo-800 flex flex-col items-center mx-auto"
-                        onclick="loadAndShowEvidence('${attId}', '${mode}', '${title}')">
-                        <i class="fi fi-rr-picture text-xl"></i>
-                        <span class="text-[10px] font-semibold uppercase">Lihat Foto</span>
-                    </button>
-                </div>`;
-            }
-            
-            // CASE 5: No data - show expression as button (clickable for info)
+
             return `<div class="flex justify-center">
-                <button type="button" class="px-2 py-1 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-semibold uppercase hover:bg-blue-100 transition-colors shadow-sm border border-blue-200 cursor-pointer"
-                    onclick="showExpiredModal()">
-                    ${ekspresi || '-'}
+                <button type="button" 
+                    class="bg-blue-50 hover:bg-blue-100 text-blue-600 px-2 py-1 rounded-lg text-[10px] font-semibold uppercase transition-all shadow-sm border border-blue-200 cursor-pointer"
+                    onclick="${isExpired ? 'showExpiredModal()' : ''}">
+                    ${label}
                 </button>
             </div>`;
         };
-
-        const buktiMasuk  = createBuktiDisplay(att.id, att.has_sm, att.landmark_masuk,  att.ekspresi_masuk_label || att.ekspresi_masuk,  'masuk',  att.ket, att.jam_masuk_iso, (att.foto_masuk && (att.foto_masuk.startsWith('data:image/') ? att.foto_masuk.length > 500 : true) ? att.foto_masuk : att.screenshot_masuk));
-        const buktiPulang = createBuktiDisplay(att.id, att.has_sp, att.landmark_pulang, att.ekspresi_pulang_label || att.ekspresi_pulang, 'pulang', att.ket, att.jam_pulang_iso || att.jam_masuk_iso, (att.foto_pulang && (att.foto_pulang.startsWith('data:image/') ? att.foto_pulang.length > 500 : true) ? att.foto_pulang : att.screenshot_pulang));
-
-        // Ket button logic with oval styling and colors
+        
+        const buktiMasuk  = createBuktiDisplay(att.id, att.has_sm, att.landmark_masuk, (att.foto_masuk || att.screenshot_masuk), att.ekspresi_masuk, 'masuk', att.ket, att.jam_masuk_iso, jamMasuk);
+        const buktiPulang = createBuktiDisplay(att.id, att.has_sp, att.landmark_pulang, (att.foto_pulang || att.screenshot_pulang), att.ekspresi_pulang, 'pulang', att.ket, att.jam_pulang_iso || att.jam_masuk_iso, jamPulang);
+        
         let ketButton = '';
         if (att.ket && (att.ket === 'wfo' || att.ket === 'wfa' || att.ket === 'izin' || att.ket === 'sakit' || att.ket === 'overtime')) {
             const ketColors = {
                 'wfo': 'bg-green-500 hover:bg-green-600 text-white',
-                'wfa': 'bg-blue-500 hover:bg-blue-600 text-white', 
+                'wfa': 'bg-amber-400 hover:bg-amber-500 text-white', 
                 'izin': 'bg-yellow-500 hover:bg-yellow-600 text-white',
                 'sakit': 'bg-yellow-500 hover:bg-yellow-600 text-white',
-                'overtime': 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                'overtime': 'bg-orange-500 hover:bg-orange-600 text-white'
             };
             const colorClass = ketColors[att.ket] || 'bg-gray-500 hover:bg-gray-600 text-white';
             ketButton = `<button class="btn-view-ket ${colorClass} px-2 py-1 rounded-full text-xs font-medium transition-colors duration-200" data-json='${JSON.stringify(att).replace(/'/g,"&apos;")}' title="Lihat Detail ${att.ket.toUpperCase()}">${att.ket.toUpperCase()}</button>`;
@@ -3300,30 +3496,37 @@ async function renderLaporan(){
             <td class="py-2 px-4"><span class="badge ${dailyReportClass}">${dailyReportStatus}</span></td>
             <td class="py-2 px-4">
                 <button title="Lihat Laporan" class="btn-view-dr-admin text-blue-600 font-bold" data-user="${att.user_id}" data-date="${(att.jam_masuk_iso||'').slice(0,10)}"><i class="fi fi-ss-eye"></i></button>
-                <button title="Edit" class="btn-edit-att text-yellow-600 font-bold ml-1" data-json='${JSON.stringify(att).replace(/'/g,"&apos;")}'><i class="fi fi-sr-pen-square"></i></button>
+                <button title="Edit" class="btn-edit-att text-yellow-600 font-bold ml-1" data-json='${JSON.stringify(att).replace(/'/g,"&apos;")} '><i class="fi fi-sr-pen-square"></i></button>
                 <button title="Hapus" class="btn-delete-laporan text-red-600 font-bold ml-1" data-id="${att.id}"><i class="fi fi-ss-trash"></i></button>
             </td>`;
-        body.appendChild(tr);
 
-        // After DOM insertion, render landmark canvases if data is available
         if (att.landmark_masuk) {
-            const cMasuk = document.getElementById(`lm-thumb-${att.id}-masuk`);
-            if (cMasuk) {
-                renderLandmarkOnCanvas(cMasuk, att.landmark_masuk, 80, 60);
-                cMasuk._lmData = att.landmark_masuk; // Store for modal onclick
-            }
+            setTimeout(() => {
+                const cMasuk = document.getElementById(`lm-thumb-${att.id}-masuk`);
+                if (cMasuk) {
+                    renderLandmarkOnCanvas(cMasuk, att.landmark_masuk, 80, 60);
+                    cMasuk._lmData = att.landmark_masuk;
+                }
+            }, 0);
         }
         if (att.landmark_pulang) {
-            const cPulang = document.getElementById(`lm-thumb-${att.id}-pulang`);
-            if (cPulang) {
-                renderLandmarkOnCanvas(cPulang, att.landmark_pulang, 80, 60);
-                cPulang._lmData = att.landmark_pulang;
-            }
+            setTimeout(() => {
+                const cPulang = document.getElementById(`lm-thumb-${att.id}-pulang`);
+                if (cPulang) {
+                    renderLandmarkOnCanvas(cPulang, att.landmark_pulang, 80, 60);
+                    cPulang._lmData = att.landmark_pulang;
+                }
+            }, 0);
         }
+        return tr;
+    }, {
+        colSpan: 12,
+        emptyMessage: 'Tidak ada data kehadiran.',
+        onPageChange: renderLaporan
     });
 }
 
-[qs('#search-laporan'), qs('#filter-startup'), qs('#filter-tanggal-mulai'), qs('#filter-tanggal-selesai'), qs('#sort-presensi'), qs('#filter-status'), qs('#filter-ket'), qs('#filter-laporan')].forEach(el=>{ if(el) el.addEventListener('input', renderLaporan); });
+[qs('#search-laporan'), qs('#filter-startup'), qs('#filter-tanggal-mulai'), qs('#filter-tanggal-selesai'), qs('#sort-presensi'), qs('#filter-status'), qs('#filter-ket'), qs('#filter-laporan')].forEach(el=>{ if(el) el.addEventListener('input', () => { resetTablePage('table-laporan-body'); renderLaporan(); }); });
 
 // NEW: Toggle today/all button
 qs('#btn-toggle-today') && qs('#btn-toggle-today').addEventListener('click', function() {
@@ -3369,14 +3572,19 @@ qs('#mh-close') && qs('#mh-close').addEventListener('click', ()=> qs('#manual-ho
 async function renderManualHolidays(){
     const start = new Date(new Date().getFullYear(),0,1).toISOString().slice(0,10);
     const end = new Date(new Date().getFullYear(),11,31).toISOString().slice(0,10);
-    const j = await api(`?ajax=admin_get_manual_holidays&start=${start}&end=${end}`, {}, { cache: false });
+    const r = await fetch(`?ajax=admin_get_manual_holidays&start=${start}&end=${end}`);
+    const j = await r.json();
     const list = j.data||[];
-    const body = qs('#mh-body'); body.innerHTML='';
-    if(list.length===0){ body.innerHTML = '<tr><td colspan="3" class="text-center py-3">Belum ada data.</td></tr>'; return; }
-    list.forEach(it=>{
+    const tbodyId = qs('#mh-body') ? 'mh-body' : 'mh-table-body';
+    
+    renderPaginatedTable(tbodyId, list, (it) => {
         const tr=document.createElement('tr'); tr.className='border-b';
         tr.innerHTML = `<td class="py-2 px-3">${it.date}</td><td class="py-2 px-3">${it.name}</td><td class="py-2 px-3 text-center"><button class="mh-del bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded" data-id="${it.id}">Hapus</button></td>`;
-        body.appendChild(tr);
+        return tr;
+    }, {
+        colSpan: 3,
+        emptyMessage: 'Belum ada data.',
+        onPageChange: renderManualHolidays
     });
 }
 
@@ -5503,7 +5711,7 @@ async function renderAdminMonthly(){
         const yNow=new Date().getFullYear(); for(let y=yNow-2;y<=yNow+1;y++){ const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); ySel.appendChild(o);}
     }
     if(sSel && sSel.options.length<=1){
-        const j = await api('?ajax=get_startups', {}, { cache: false });
+        const j = await api('?ajax=get_startups', {}, { suppressModal: true, cache: true, ttl: 300000 });
         if(j.ok && j.data){
             j.data.forEach(startup => {
                 const o = document.createElement('option');
@@ -5513,6 +5721,34 @@ async function renderAdminMonthly(){
             });
         }
     }
+    const payload = { term: qs('#am-search')?.value||'', startup: qs('#am-startup')?.value||'', month: qs('#am-month')?.value||'', year: qs('#am-year')?.value||'' };
+    const r = await api('?ajax=admin_get_monthly_reports', payload);
+    const j = r.data||[];
+    const filteredReports = j.filter(it => it.status !== 'draft');
+    const monthName=(m)=>['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'][m-1];
+
+    renderPaginatedTable('am-body', filteredReports, (it) => {
+        const tr=document.createElement('tr'); tr.className='border-b hover:bg-gray-50';
+        const label = `${monthName(parseInt(it.month))} ${it.year}`;
+        const detailBtn = `<button class="btn-view-month-detail text-blue-600 font-bold text-center" data-id="${it.id}"><i class="fi fi-ss-eye text-xl"></i></button>`;
+        const statusBadge = it.status==='approved'? `<span class="badge badge-green">Di-approve</span>`:(it.status==='disapproved'?`<span class="badge badge-red">Tidak di-approve</span>`:`<span class="badge badge-blue">Belum di Approve</span>`);
+        const actions = (it.status === 'belum di approve' || it.status === 'approved' || it.status === 'disapproved') ?
+            `<button class="btn-am-approve bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded mr-1" data-id="${it.id}">Approve</button>
+            <button class="btn-am-disapprove bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded" data-id="${it.id}">Disapprove</button>` : '';
+
+        tr.innerHTML = `
+            <td class="py-2 px-4">${label}</td>
+            <td class="py-2 px-4">${it.nama||''}</td>
+            <td class="py-2 px-4">${it.startup||'-'}</td>
+            <td class="py-2 px-4">${detailBtn}</td>
+            <td class="py-2 px-4">${statusBadge}</td>
+            <td class="py-2 px-4">${actions}</td>`;
+        return tr;
+    }, {
+        colSpan: 6,
+        emptyMessage: 'Tidak ada data.',
+        onPageChange: renderAdminMonthly
+    });
 }
 </script>
 <?php endif; ?>
